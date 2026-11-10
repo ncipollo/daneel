@@ -1,0 +1,19 @@
+[package]
+name = "daneel"
+description = "A slow, careful agent built for small local models."
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ncipollo/daneel"
+version = "0.1.0"
+
+[dependencies]
+clap = { version = "4.6.4", features = ["derive"] }
+
+[lints.clippy]
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+too_many_arguments = "warn"
+
+[dev-dependencies]
+tempfile = "3.27.0"
