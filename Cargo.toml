@@ -10,9 +10,11 @@ version = "0.1.0"
 [dependencies]
 clap = { version = "4.6.4", features = ["derive"] }
 dirs = "6.0.0"
+rig-core = "0.35.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.18"
+tokio = { version = "1.54.1", features = ["full"] }
 toml = { version = "1.1.4", default-features = false, features = ["std", "parse", "serde"] }
 
 [lints.clippy]

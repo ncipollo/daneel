@@ -17,6 +17,8 @@ pub struct ProviderConfig {
     pub api: Option<String>,
     #[serde(alias = "api_key")]
     pub api_key: Option<String>,
+    #[serde(alias = "keep_alive")]
+    pub keep_alive: Option<String>,
     pub models: Vec<ModelEntry>,
 }
 
@@ -49,9 +51,10 @@ mod tests {
 
     #[test]
     fn accepts_snake_case_aliases() {
-        let value = json!({ "providers": { "p": { "base_url": "u", "api_key": "k" } } });
+        let value = json!({ "providers": { "p": { "base_url": "u", "api_key": "k", "keep_alive": "5m" } } });
         let config: ModelsConfig = serde_json::from_value(value).unwrap();
         assert_eq!(config.providers["p"].base_url.as_deref(), Some("u"));
         assert_eq!(config.providers["p"].api_key.as_deref(), Some("k"));
+        assert_eq!(config.providers["p"].keep_alive.as_deref(), Some("5m"));
     }
 }
