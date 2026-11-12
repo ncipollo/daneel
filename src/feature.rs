@@ -7,4 +7,5 @@ pub mod greeting;
 pub mod oneshot;
 pub mod provider;
 pub mod providers;
+pub mod session;
 pub mod tools;

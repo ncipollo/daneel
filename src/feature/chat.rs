@@ -8,6 +8,7 @@ use crate::feature::config::Config;
 use crate::feature::events::{Event, EventKind, EventSink};
 use crate::feature::provider::{ChatMessage, ChatRequest, Provider, ProviderError, Role};
 use crate::feature::providers::{ProviderSpec, build_provider};
+use crate::feature::session::{self, Session};
 use crate::feature::tools::{builtin_registry, into_rig_observed};
 
 const INSTRUCTIONS: &str =
@@ -17,6 +18,7 @@ pub struct Chat {
     provider: Arc<dyn Provider>,
     working_dir: PathBuf,
     history: Vec<ChatMessage>,
+    session: Option<Session>,
 }
 
 impl Chat {
@@ -25,6 +27,7 @@ impl Chat {
             provider,
             working_dir,
             history: Vec::new(),
+            session: None,
         }
     }
 
@@ -36,16 +39,31 @@ impl Chat {
     ) -> Result<(Self, String), ProviderError> {
         let spec = ProviderSpec::from_config(config)?;
         let model = spec.model().to_string();
-        Ok((Self::new(build_provider(spec), working_dir), model))
+        let mut chat = Self::new(build_provider(spec), working_dir.clone());
+        chat.session = session::start_default(&working_dir, &model);
+        Ok((chat, model))
+    }
+
+    pub fn with_session(mut self, session: Session) -> Self {
+        self.session = Some(session);
+        self
+    }
+
+    fn record(&self, role: &str, content: &str) {
+        if let Some(session) = &self.session {
+            let _ = session.append_message(role, content);
+        }
     }
 
     /// Sends one user prompt. Tool activity flows to `sink`; on success the
     /// exchange is added to the history.
     pub async fn send(&mut self, prompt: &str, sink: EventSink) -> Result<String, ProviderError> {
+        self.record("user", prompt);
         let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
         request.history = &self.history;
         request.tools = into_rig_observed(builtin_registry(&self.working_dir), sink);
         let reply = self.provider.chat(request).await?;
+        self.record("assistant", &reply);
         self.history.push(message(Role::User, prompt));
         self.history.push(message(Role::Assistant, &reply));
         Ok(reply)
@@ -74,6 +92,7 @@ pub fn completion_events(result: &Result<String, ProviderError>) -> Vec<Event> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::sync::Mutex;
 
     use super::*;
@@ -102,6 +121,25 @@ mod tests {
         let reply = chat.send("b", events::discard()).await.unwrap();
         assert_eq!(reply, "re:b");
         assert_eq!(*provider.0.lock().unwrap(), vec![0, 2]);
+    }
+
+    #[tokio::test]
+    async fn turns_are_recorded_in_the_session() {
+        let root = tempfile::TempDir::new().unwrap();
+        let session = Session::create(
+            root.path(),
+            std::time::SystemTime::now(),
+            Path::new("."),
+            "m",
+        )
+        .unwrap();
+        let log = session.dir().join("messages.jsonl");
+        let provider = Arc::new(Recorder(Mutex::new(Vec::new())));
+        let mut chat = Chat::new(provider, PathBuf::from(".")).with_session(session);
+        chat.send("hi", events::discard()).await.unwrap();
+        let text = std::fs::read_to_string(log).unwrap();
+        assert_eq!(text.lines().count(), 2);
+        assert!(text.contains(r#""role":"assistant","content":"re:hi""#));
     }
 
     #[test]
