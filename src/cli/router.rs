@@ -2,18 +2,15 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use crate::cli::Cli;
-use crate::feature::{config, greeting};
+use crate::cli::{Cli, prompt};
 
 pub fn run() -> ExitCode {
-    let _cli = Cli::parse();
-    let _config = match config::load_default() {
-        Ok(config) => config,
-        Err(err) => {
-            eprintln!("daneel: {err}");
-            return ExitCode::FAILURE;
+    let cli = Cli::parse();
+    match (cli.prompt, cli.message.as_deref()) {
+        (true, Some(message)) => prompt::run(&cli, message),
+        _ => {
+            eprintln!("daneel: the interactive TUI is not available yet; use `daneel -p \"...\"`");
+            ExitCode::FAILURE
         }
-    };
-    println!("{}", greeting::message());
-    ExitCode::SUCCESS
+    }
 }

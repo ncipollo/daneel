@@ -15,7 +15,7 @@ use std::path::Path;
 
 pub use agent_tool::AgentTool;
 pub use registry::ToolRegistry;
-pub use rig_adapter::into_rig;
+pub use rig_adapter::{into_rig, into_rig_observed};
 
 use edit_file::EditFile;
 use invoke_shell::InvokeShell;
