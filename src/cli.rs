@@ -3,6 +3,7 @@
 
 pub mod prompt;
 pub mod router;
+pub mod tui;
 
 use clap::{Parser, ValueEnum};
 

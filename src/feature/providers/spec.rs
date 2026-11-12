@@ -36,6 +36,17 @@ pub enum ProviderSpec {
 }
 
 impl ProviderSpec {
+    pub fn model(&self) -> &str {
+        match self {
+            Self::Ollama { model, .. }
+            | Self::OpenAi { model, .. }
+            | Self::Anthropic { model, .. }
+            | Self::Gemini { model, .. }
+            | Self::Cohere { model, .. }
+            | Self::XAi { model, .. } => model,
+        }
+    }
+
     /// Resolves the default provider and model named in `settings` against `models`.
     pub fn from_config(config: &Config) -> Result<Self, ProviderError> {
         let name = config

@@ -10,6 +10,7 @@ version = "0.1.0"
 [dependencies]
 clap = { version = "4.6.4", features = ["derive"] }
 dirs = "6.0.0"
+ratatui = { version = "0.30.0", features = ["unstable-rendered-line-info"] }
 rig-core = "0.35.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

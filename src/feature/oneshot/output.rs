@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use crate::feature::events::{self, Event, EventKind, EventSink};
-use crate::feature::oneshot::error_event;
+use crate::feature::chat::completion_events;
+use crate::feature::events::{self, Event, EventSink};
 use crate::feature::provider::ProviderError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -21,15 +21,11 @@ pub fn sink_for(mode: OutputMode) -> EventSink {
     }
 }
 
-/// Emits the closing output once the run is over. Errors on stderr in text mode.
+/// Emits the closing output once the run is over.
 pub fn finish(mode: OutputMode, sink: &EventSink, result: &Result<String, ProviderError>) {
     match (mode, result) {
         (OutputMode::Text, Ok(text)) => println!("{text}"),
         (OutputMode::Text, Err(_)) => {}
-        (OutputMode::Json, Ok(text)) => {
-            sink(Event::new(EventKind::Message { text: text.clone() }));
-            sink(Event::new(EventKind::Done));
-        }
-        (OutputMode::Json, Err(err)) => sink(error_event(err)),
+        (OutputMode::Json, result) => completion_events(result).into_iter().for_each(|e| sink(e)),
     }
 }
