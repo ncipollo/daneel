@@ -8,5 +8,6 @@ pub mod oneshot;
 pub mod provider;
 pub mod providers;
 pub mod session;
+pub mod strategy;
 pub mod task;
 pub mod tools;
