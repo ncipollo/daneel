@@ -5,11 +5,21 @@ use rig::tool::{ToolDyn, ToolError};
 use rig::wasm_compat::WasmBoxedFuture;
 use serde_json::Value;
 
+use crate::feature::events::{Event, EventKind, EventSink};
 use crate::feature::tools::registry::ToolRegistry;
 
 struct RigTool {
     definition: ToolDefinition,
     registry: Arc<ToolRegistry>,
+    sink: Option<EventSink>,
+}
+
+impl RigTool {
+    fn emit(&self, kind: EventKind) {
+        if let Some(sink) = &self.sink {
+            sink(Event::new(kind));
+        }
+    }
 }
 
 impl ToolDyn for RigTool {
@@ -23,10 +33,22 @@ impl ToolDyn for RigTool {
 
     fn call<'a>(&'a self, args: String) -> WasmBoxedFuture<'a, Result<String, ToolError>> {
         Box::pin(async move {
-            let output = match serde_json::from_str::<Value>(&args) {
-                Ok(value) => self.registry.dispatch(&self.definition.name, value).await,
+            let name = self.definition.name.clone();
+            let parsed = serde_json::from_str::<Value>(&args);
+            self.emit(EventKind::ToolCall {
+                name: name.clone(),
+                args: parsed
+                    .as_ref()
+                    .map_or_else(|_| Value::String(args.clone()), Value::clone),
+            });
+            let output = match parsed {
+                Ok(value) => self.registry.dispatch(&name, value).await,
                 Err(e) => format!("error: invalid arguments: {e}"),
             };
+            self.emit(EventKind::ToolResult {
+                name,
+                output: output.clone(),
+            });
             Ok(output)
         })
     }
@@ -34,6 +56,15 @@ impl ToolDyn for RigTool {
 
 /// Exposes every tool in `registry` to rig. Calls still route through `dispatch`.
 pub fn into_rig(registry: ToolRegistry) -> Vec<Box<dyn ToolDyn>> {
+    wrap(registry, None)
+}
+
+/// Like `into_rig`, but reports each call and result to `sink`.
+pub fn into_rig_observed(registry: ToolRegistry, sink: EventSink) -> Vec<Box<dyn ToolDyn>> {
+    wrap(registry, Some(sink))
+}
+
+fn wrap(registry: ToolRegistry, sink: Option<EventSink>) -> Vec<Box<dyn ToolDyn>> {
     let registry = Arc::new(registry);
     registry
         .definitions()
@@ -42,6 +73,7 @@ pub fn into_rig(registry: ToolRegistry) -> Vec<Box<dyn ToolDyn>> {
             Box::new(RigTool {
                 definition,
                 registry: Arc::clone(&registry),
+                sink: sink.clone(),
             }) as Box<dyn ToolDyn>
         })
         .collect()
@@ -89,6 +121,20 @@ mod tests {
         let tools = tools();
         let out = tools[0].call(r#"{"text":"hi"}"#.to_string()).await.unwrap();
         assert_eq!(out, "HI");
+    }
+
+    #[tokio::test]
+    async fn observed_calls_report_call_and_result() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        let sink: EventSink = Arc::new(move |e| log.lock().unwrap().push(e.kind));
+        let mut registry = ToolRegistry::new();
+        registry.register(Upper);
+        let tools = into_rig_observed(registry, sink);
+        tools[0].call(r#"{"text":"hi"}"#.to_string()).await.unwrap();
+        let kinds = seen.lock().unwrap();
+        assert!(matches!(&kinds[0], EventKind::ToolCall { name, .. } if name == "upper"));
+        assert!(matches!(&kinds[1], EventKind::ToolResult { output, .. } if output == "HI"));
     }
 
     #[tokio::test]

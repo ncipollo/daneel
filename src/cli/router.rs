@@ -2,18 +2,12 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use crate::cli::Cli;
-use crate::feature::{config, greeting};
+use crate::cli::{Cli, prompt, tui};
 
 pub fn run() -> ExitCode {
-    let _cli = Cli::parse();
-    let _config = match config::load_default() {
-        Ok(config) => config,
-        Err(err) => {
-            eprintln!("daneel: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    println!("{}", greeting::message());
-    ExitCode::SUCCESS
+    let cli = Cli::parse();
+    match cli.message.as_deref() {
+        Some(message) if cli.prompt => prompt::run(&cli, message),
+        _ => tui::run(),
+    }
 }
