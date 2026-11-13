@@ -1,10 +1,14 @@
 //! The provider abstraction: one interface the agent loop uses to talk to any
 //! model backend (Ollama, OpenAI, Anthropic, ...).
 
+pub mod summary;
+
 use std::future::Future;
 use std::pin::Pin;
 
 use thiserror::Error;
+
+pub use summary::summarize_error;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 

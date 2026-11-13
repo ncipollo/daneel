@@ -62,7 +62,13 @@ impl Chat {
         let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
         request.history = &self.history;
         request.tools = into_rig_observed(builtin_registry(&self.working_dir), sink);
-        let reply = self.provider.chat(request).await?;
+        let reply = match self.provider.chat(request).await {
+            Ok(reply) => reply,
+            Err(err) => {
+                self.record("error", &err.to_string());
+                return Err(err);
+            }
+        };
         self.record("assistant", &reply);
         self.history.push(message(Role::User, prompt));
         self.history.push(message(Role::Assistant, &reply));
@@ -140,6 +146,34 @@ mod tests {
         let text = std::fs::read_to_string(log).unwrap();
         assert_eq!(text.lines().count(), 2);
         assert!(text.contains(r#""role":"assistant","content":"re:hi""#));
+    }
+
+    struct Failing;
+
+    impl Provider for Failing {
+        fn chat<'a>(
+            &'a self,
+            _request: ChatRequest<'a>,
+        ) -> BoxFuture<'a, Result<String, ProviderError>> {
+            Box::pin(async { Err(ProviderError::Provider("kaboom".into())) })
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_turns_record_the_full_error() {
+        let root = tempfile::TempDir::new().unwrap();
+        let session = Session::create(
+            root.path(),
+            std::time::SystemTime::now(),
+            Path::new("."),
+            "m",
+        )
+        .unwrap();
+        let log = session.dir().join("messages.jsonl");
+        let mut chat = Chat::new(Arc::new(Failing), PathBuf::from(".")).with_session(session);
+        assert!(chat.send("hi", events::discard()).await.is_err());
+        let text = std::fs::read_to_string(log).unwrap();
+        assert!(text.contains(r#""role":"error","content":"provider error: kaboom""#));
     }
 
     #[test]

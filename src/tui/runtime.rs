@@ -10,10 +10,11 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::{execute, terminal};
 use tokio::sync::{Mutex, mpsc};
+use tokio::time::{self, Duration, MissedTickBehavior};
 
 use crate::feature::chat::{Chat, completion_events};
 use crate::feature::events::{Event, EventSink};
-use crate::tui::app::{Action, App};
+use crate::tui::app::{Action, App, TICKS_PER_SECOND};
 use crate::tui::keys::handle_key;
 use crate::tui::render::draw;
 
@@ -46,6 +47,8 @@ async fn event_loop(terminal: &mut DefaultTerminal, chat: Chat, model: String) -
     let mut app = App::new(model);
     let mut terminal_events = spawn_terminal_reader();
     let (agent_tx, mut agent_rx) = mpsc::unbounded_channel::<Event>();
+    let mut ticker = time::interval(Duration::from_millis(u64::from(1000 / TICKS_PER_SECOND)));
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
         terminal.draw(|frame| draw(frame, &app))?;
         tokio::select! {
@@ -59,6 +62,7 @@ async fn event_loop(terminal: &mut DefaultTerminal, chat: Chat, model: String) -
                 }
             }
             Some(event) = agent_rx.recv() => app.apply(event),
+            _ = ticker.tick(), if app.busy => app.tick(),
             else => return Ok(()),
         }
     }

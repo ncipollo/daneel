@@ -71,8 +71,18 @@ fn draw_input(frame: &mut Frame, app: &App, area: Rect) {
     frame.set_cursor_position((x, y));
 }
 
+const SPINNER: [char; 4] = ['|', '/', '-', '\\'];
+
+fn state_label(app: &App) -> String {
+    if !app.busy {
+        return "ready".to_string();
+    }
+    let frame = SPINNER[(app.ticks as usize) % SPINNER.len()];
+    format!("{frame} working {}s", app.elapsed_secs())
+}
+
 fn status_bar(app: &App) -> Paragraph<'static> {
-    let state = if app.busy { "working..." } else { "ready" };
+    let state = state_label(app);
     let text = format!(
         " {} | {state} | Enter send, Shift+Enter newline, Ctrl+C quit",
         app.model
@@ -103,6 +113,24 @@ mod tests {
     fn status_bar_shows_the_active_model() {
         let app = App::new("qwen3");
         assert!(rendered(&app, 80, 10).contains("qwen3"));
+    }
+
+    #[test]
+    fn busy_status_shows_spinner_and_elapsed_time() {
+        let mut app = App::new("m");
+        app.busy = true;
+        app.ticks = 37;
+        assert!(rendered(&app, 80, 10).contains("working 3s"));
+        app.busy = false;
+        assert!(rendered(&app, 80, 10).contains("ready"));
+    }
+
+    #[test]
+    fn status_bar_survives_a_very_narrow_terminal() {
+        let mut app = App::new("a-long-model-name");
+        app.busy = true;
+        let screen = rendered(&app, 12, 6);
+        assert!(screen.contains("a-long-mode"));
     }
 
     #[test]
