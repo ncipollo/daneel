@@ -1,0 +1,26 @@
+# Daneel tactic: the phases used to work through one subtask.
+# Edit freely; daneel only writes this file when it is missing.
+
+[[phases]]
+name = "Plan"
+prompt = """
+Decide the single next action for this subtask. Say what you will do and why, in a sentence or two."""
+settings = { can_write_working_directory = false, terminal = false }
+
+[[phases]]
+name = "Execute"
+prompt = """
+Do the action you planned, using the available tools."""
+settings = { can_write_working_directory = true, terminal = false }
+
+[[phases]]
+name = "Validate"
+prompt = """
+Check the result of the action. Did it do what you intended? Say what you saw."""
+settings = { can_write_working_directory = false, terminal = false }
+
+[[phases]]
+name = "Deliver"
+prompt = """
+Report the outcome of this subtask: what was done and whether it worked."""
+settings = { can_write_working_directory = false, terminal = true }

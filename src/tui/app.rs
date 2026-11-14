@@ -1,8 +1,10 @@
 //! Pure UI state. No terminal access, so every transition is unit-testable.
 
 use crate::feature::events::{Event, EventKind};
+use crate::feature::provider::summarize_error;
 
 const RESULT_PREVIEW_CHARS: usize = 80;
+pub const TICKS_PER_SECOND: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entry {
@@ -28,6 +30,8 @@ pub struct App {
     pub busy: bool,
     /// Lines scrolled up from the bottom of the history; 0 follows new output.
     pub scroll_up: u16,
+    /// Ticks since the running turn started; drives the spinner and elapsed time.
+    pub ticks: u32,
 }
 
 impl App {
@@ -38,6 +42,7 @@ impl App {
             model: model.into(),
             busy: false,
             scroll_up: 0,
+            ticks: 0,
         }
     }
 
@@ -66,9 +71,21 @@ impl App {
         }
         self.input.clear();
         self.busy = true;
+        self.ticks = 0;
         self.scroll_up = 0;
         self.entries.push(Entry::User(text.clone()));
         Action::Submit(text)
+    }
+
+    /// Advances the activity indicator. Does nothing while idle.
+    pub fn tick(&mut self) {
+        if self.busy {
+            self.ticks = self.ticks.saturating_add(1);
+        }
+    }
+
+    pub fn elapsed_secs(&self) -> u32 {
+        self.ticks / TICKS_PER_SECOND
     }
 
     pub fn apply(&mut self, event: Event) {
@@ -83,7 +100,7 @@ impl App {
             EventKind::Message { text } => self.entries.push(Entry::Assistant(text)),
             EventKind::Done => self.busy = false,
             EventKind::Error { message } => {
-                self.entries.push(Entry::Error(message));
+                self.entries.push(Entry::Error(summarize_error(&message)));
                 self.busy = false;
             }
         }
@@ -166,6 +183,37 @@ mod tests {
         }));
         assert_eq!(app.entries, vec![Entry::Error("bad".into())]);
         assert!(!app.busy);
+    }
+
+    #[test]
+    fn ticks_only_advance_while_busy() {
+        let mut app = App::new("m");
+        app.tick();
+        assert_eq!(app.ticks, 0);
+        typed(&mut app, "hi");
+        app.submit();
+        (0..25).for_each(|_| app.tick());
+        assert_eq!((app.ticks, app.elapsed_secs()), (25, 2));
+    }
+
+    #[test]
+    fn a_new_turn_restarts_the_clock() {
+        let mut app = App::new("m");
+        app.busy = true;
+        (0..30).for_each(|_| app.tick());
+        app.apply(Event::new(EventKind::Done));
+        typed(&mut app, "again");
+        app.submit();
+        assert_eq!(app.elapsed_secs(), 0);
+    }
+
+    #[test]
+    fn error_text_is_shortened_for_display() {
+        let mut app = App::new("m");
+        app.apply(Event::new(EventKind::Error {
+            message: "provider error: CompletionError: HttpError: connection refused".into(),
+        }));
+        assert_eq!(app.entries, vec![Entry::Error("connection refused".into())]);
     }
 
     #[test]

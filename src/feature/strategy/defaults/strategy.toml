@@ -1,0 +1,35 @@
+# Daneel strategy: the phases the agent works through for every task.
+# Edit freely; daneel only writes this file when it is missing.
+#
+# can_write_working_directory = false limits a phase to the session folder.
+# terminal = true marks the last phase.
+
+[[phases]]
+name = "Discover"
+prompt = """
+Look around before doing anything. Read the files and run the read-only commands you need to understand the task. Break it into small subtasks if that helps. Do not change anything yet."""
+settings = { can_write_working_directory = false, terminal = false }
+
+[[phases]]
+name = "Plan"
+prompt = """
+Write a short, numbered plan for the task using what you learned. Keep each step small and concrete."""
+settings = { can_write_working_directory = false, terminal = false }
+
+[[phases]]
+name = "Execute"
+prompt = """
+Carry out the plan one step at a time. Make the changes in the working directory and run what you need to check each step."""
+settings = { can_write_working_directory = true, terminal = false }
+
+[[phases]]
+name = "Validate"
+prompt = """
+Check that the task is really done. Re-read your changes and run the tests or commands that prove it works. List anything that is still wrong."""
+settings = { can_write_working_directory = false, terminal = false }
+
+[[phases]]
+name = "Deliver"
+prompt = """
+Summarize what you did and what you found, in plain language. Mention anything left undone."""
+settings = { can_write_working_directory = false, terminal = true }
