@@ -9,6 +9,9 @@ The code is broken down into layers (see `docs/arch.md`):
 - `cli` — The view layer, built with clap. `main` calls the top-level router in this module; each command gets its own file and is called from the router. No actual logic lives in this layer.
 - `feature` — Where all domain logic lives. The cli layer calls through to feature.
 
+## Agent Documentation
+`daneel --info` lists documentation topics and `daneel --info <topic>` prints one (provider config, settings, tools, strategies). The pages live in `src/feature/info/`. When you change a config format, update its topic; examples there are parsed by tests against the real config types.
+
 ## After Each Change
 Run the following commands after every code change and fix any issues before considering the change complete:
 

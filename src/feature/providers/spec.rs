@@ -2,7 +2,7 @@ use crate::feature::config::{Config, ProviderConfig};
 use crate::feature::provider::ProviderError;
 
 const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
-const KINDS: &str = "ollama, openai, anthropic, gemini, cohere, xai";
+pub const KINDS: &str = "ollama, openai, anthropic, gemini, cohere, xai";
 
 /// A fully resolved provider choice, ready for `build_provider`.
 #[derive(Debug, Clone, PartialEq, Eq)]
