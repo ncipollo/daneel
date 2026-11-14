@@ -163,7 +163,10 @@ impl InteractionState {
 
     fn ensure_unsignalled(&self) -> Result<(), String> {
         match &self.signal {
-            Some(signal) => Err(format!("already requested {signal:?}; stop and wait")),
+            Some(_) => Err(
+                "a phase change is already pending. Do not call any more tools; just stop now."
+                    .to_string(),
+            ),
             None => Ok(()),
         }
     }
@@ -222,7 +225,7 @@ mod tests {
     fn a_second_request_is_refused() {
         let mut s = state(0, false);
         s.advance().unwrap();
-        assert!(s.advance().unwrap_err().contains("already requested"));
+        assert!(s.advance().unwrap_err().contains("already pending"));
     }
 
     #[test]

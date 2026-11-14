@@ -34,7 +34,9 @@ impl Interaction {
             name: "advance_phase",
             description: "Finish this phase and move to the next one.",
             schema: json!({ "type": "object", "properties": {} }),
-            action: |s, _| s.advance().map(|()| "ok: moving to the next phase".into()),
+            action: |s, _| {
+                s.advance().map(|()| "ok: moving to the next phase. Stop now and call no more tools; the next phase starts on its own".into())
+            },
             state,
         }
     }
@@ -55,7 +57,7 @@ impl Interaction {
                 let phase = string_arg(args, "phase")?;
                 let reason = string_arg(args, "reason").unwrap_or_default();
                 s.retry(&phase, &reason)
-                    .map(|()| format!("ok: going back to {phase}"))
+                    .map(|()| format!("ok: going back to {phase}. Stop now and call no more tools; that phase starts on its own"))
             },
             state,
         }
@@ -77,7 +79,7 @@ impl Interaction {
                 let phase = string_arg(args, "phase")?;
                 let reason = string_arg(args, "reason").unwrap_or_default();
                 s.skip(&phase, &reason)
-                    .map(|()| format!("ok: skipping to {phase}"))
+                    .map(|()| format!("ok: skipping to {phase}. Stop now and call no more tools; {phase} starts on its own"))
             },
             state,
         }
@@ -96,7 +98,8 @@ impl Interaction {
             }),
             action: |s, args| {
                 let summary = string_arg(args, "summary")?;
-                s.complete(&summary).map(|()| "ok: task complete".into())
+                s.complete(&summary)
+                    .map(|()| "ok: task complete. Stop now and call no more tools".into())
             },
             state,
         }
