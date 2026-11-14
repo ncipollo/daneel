@@ -43,6 +43,12 @@ fn footer(view: &PhaseView) -> String {
     if view.can_create_subtasks {
         lines.push("To split off a smaller piece of work, call create_subtask.".to_string());
     }
+    if !view.terminal {
+        lines.push(
+            "To skip phases you do not need, call skip_to_phase with the name of a later phase."
+                .to_string(),
+        );
+    }
     if view.number > 1 {
         lines.push(
             "If an earlier phase must be redone, call retry_phase with its name.".to_string(),
@@ -81,10 +87,12 @@ mod tests {
         let middle = wrap_prompt(&view(2, false, &[]));
         assert!(middle.contains("advance_phase") && middle.contains("create_subtask"));
         assert!(middle.contains("retry_phase"));
+        assert!(middle.contains("skip_to_phase"));
         let first = wrap_prompt(&view(1, false, &[]));
         assert!(!first.contains("retry_phase"));
         let last = wrap_prompt(&view(3, true, &[]));
         assert!(last.contains("complete_task") && !last.contains("create_subtask"));
+        assert!(!last.contains("skip_to_phase"));
     }
 
     #[test]

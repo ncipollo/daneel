@@ -59,6 +59,19 @@ pub async fn run_tactic(
                 );
                 return Ok(TacticOutcome { summary });
             }
+            Some(Signal::Skip {
+                phase: target,
+                reason,
+            }) => {
+                notes.push(format!("skipped to {target} from {}: {reason}", phase.name));
+                index = names.iter().position(|n| *n == target).unwrap_or(index + 1);
+                tracing::info!(
+                    label = ctx.label,
+                    from = phase.name.as_str(),
+                    to = target.as_str(),
+                    "tactic phase transition (skip)"
+                );
+            }
             Some(Signal::Retry {
                 phase: target,
                 reason,

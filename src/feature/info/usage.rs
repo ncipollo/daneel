@@ -14,7 +14,7 @@ pub fn render() -> String {
          \n\
          HOW A MESSAGE IS HANDLED\n\
          Every message becomes a task and runs through the strategy: an\n\
-         ordered list of phases (by default Discover, Plan, Execute,\n\
+         ordered list of phases (by default Triage, Discover, Plan, Execute,\n\
          Validate, Deliver), each a separate model call with its own tools.\n\
          Subtasks run through the tactic. The final delivery is the reply.\n\
          A run that never delivers is an error, never an empty reply. See\n\

@@ -17,6 +17,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.18"
 tokio = { version = "1.54.1", features = ["full"] }
+walkdir = "2.5.0"
 toml = { version = "1.1.4", default-features = false, features = ["std", "parse", "serde"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
