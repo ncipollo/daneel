@@ -1,6 +1,7 @@
 //! View layer. Parses arguments with clap and delegates to the feature layer.
 //! No domain logic lives here.
 
+pub mod info;
 pub mod prompt;
 pub mod router;
 pub mod tui;
@@ -17,7 +18,7 @@ pub enum ModeArg {
 #[command(name = "daneel", version, about)]
 pub struct Cli {
     /// Send a single prompt, print the response, and exit.
-    #[arg(short = 'p', long, requires = "message")]
+    #[arg(short = 'p', long, requires = "message", conflicts_with = "info")]
     pub prompt: bool,
 
     /// Output format for one-shot mode: plain text or newline-delimited JSON events.
@@ -26,6 +27,11 @@ pub struct Cli {
 
     /// The prompt to send (used with -p).
     pub message: Option<String>,
+
+    /// Print documentation for agents and exit. Bare --info lists the topics;
+    /// --info <TOPIC> prints one.
+    #[arg(long, value_name = "TOPIC", num_args = 0..=1, conflicts_with = "message")]
+    pub info: Option<Option<String>>,
 }
 
 #[cfg(test)]
@@ -64,5 +70,23 @@ mod tests {
     #[test]
     fn mode_requires_prompt_flag() {
         assert!(parse(&["--mode", "json"]).is_err());
+    }
+
+    #[test]
+    fn bare_info_lists_topics() {
+        assert_eq!(parse(&["--info"]).unwrap().info, Some(None));
+    }
+
+    #[test]
+    fn info_takes_a_topic() {
+        let cli = parse(&["--info", "providers"]).unwrap();
+        assert_eq!(cli.info, Some(Some("providers".to_string())));
+        assert!(cli.message.is_none());
+    }
+
+    #[test]
+    fn info_conflicts_with_prompt_mode() {
+        assert!(parse(&["--info", "-p", "hi"]).is_err());
+        assert!(parse(&["-p", "--info", "hi"]).is_err());
     }
 }

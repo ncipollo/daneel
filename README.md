@@ -14,6 +14,8 @@ cargo install daneel
 
 ```sh
 daneel --help
+daneel --info            # topics for agents: providers, settings, tools, strategies
+daneel --info providers  # configure a model provider
 ```
 
 ## Development

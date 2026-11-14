@@ -4,6 +4,7 @@ pub mod chat;
 pub mod config;
 pub mod events;
 pub mod greeting;
+pub mod info;
 pub mod interaction;
 #[cfg(test)]
 pub mod log_capture;
