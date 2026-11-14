@@ -21,9 +21,11 @@ pub fn render() -> String {
          \x20 ~/.daneel/strategies/default.toml\n\
          \x20 ~/.daneel/strategies/tactics/default.toml\n\
          \n\
-         daneel writes the defaults (Discover, Plan, Execute, Validate,\n\
-         Deliver; tactic Plan, Execute) at startup only if the files are\n\
-         missing, so edit them freely. Delete one to get the default back.\n\
+         daneel writes the defaults (Triage, Discover, Plan, Execute, Validate,\n\
+         Deliver; tactic Plan, Execute, Validate, Deliver) at startup only if\n\
+         the files are missing, so edit them freely. daneel never overwrites\n\
+         a file, so a default.toml from before Triage existed has no\n\
+         Triage phase: delete it to get the new default back.\n\
          \n\
          PHASE FORMAT\n\
          Each [[phases]] table has:\n\
@@ -35,7 +37,9 @@ pub fn render() -> String {
          \n\
          RULES\n\
          At least one phase. Only the last may be terminal. The model moves\n\
-         on by calling advance_phase, goes back with retry_phase, and ends\n\
+         on by calling advance_phase, jumps ahead to a later named phase with\n\
+         skip_to_phase (Triage uses it to go straight to Deliver for a task\n\
+         that needs no work), goes back with retry_phase, and ends\n\
          the last phase with complete_task. A broken file stops daneel with\n\
          a message naming it.\n\
          \n\

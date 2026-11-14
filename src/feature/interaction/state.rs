@@ -9,6 +9,7 @@ pub type SharedState = Arc<Mutex<InteractionState>>;
 pub enum Signal {
     Advance,
     Retry { phase: String, reason: String },
+    Skip { phase: String, reason: String },
     Complete { summary: String },
 }
 
@@ -76,6 +77,33 @@ impl InteractionState {
             "retry requested"
         );
         self.signal = Some(Signal::Retry {
+            phase: name.clone(),
+            reason: reason.trim().to_string(),
+        });
+        Ok(())
+    }
+
+    pub fn skip(&mut self, phase: &str, reason: &str) -> Result<(), String> {
+        self.ensure_unsignalled()?;
+        if self.terminal {
+            return Err("this is the last phase; call complete_task instead".to_string());
+        }
+        self.ensure_no_open_subtasks("skip")?;
+        let later = &self.phases[self.current + 1..];
+        let found = later.iter().find(|name| name.eq_ignore_ascii_case(phase));
+        let Some(name) = found else {
+            return Err(format!(
+                "cannot skip to '{phase}'; later phases are: {}",
+                later.join(", ")
+            ));
+        };
+        tracing::info!(
+            phase = self.phase_name(),
+            target = name.as_str(),
+            reason,
+            "skip requested"
+        );
+        self.signal = Some(Signal::Skip {
             phase: name.clone(),
             reason: reason.trim().to_string(),
         });
@@ -208,6 +236,31 @@ mod tests {
         assert_eq!(s.take_signal(), Some(expected));
         let err = state(1, false).retry("Deliver", "").unwrap_err();
         assert!(err.contains("earlier phases are: Plan"));
+    }
+
+    #[test]
+    fn skip_targets_later_phases_only() {
+        let mut s = state(0, false);
+        s.skip("deliver", "just a greeting").unwrap();
+        let expected = Signal::Skip {
+            phase: "Deliver".into(),
+            reason: "just a greeting".into(),
+        };
+        assert_eq!(s.take_signal(), Some(expected));
+        let err = state(1, false).skip("Plan", "").unwrap_err();
+        assert!(err.contains("later phases are: Deliver"));
+        assert!(
+            state(2, true)
+                .skip("Plan", "")
+                .unwrap_err()
+                .contains("complete_task")
+        );
+        assert!(
+            state(0, false)
+                .with_subtasks(true, 1)
+                .skip("Deliver", "")
+                .is_err()
+        );
     }
 
     #[test]

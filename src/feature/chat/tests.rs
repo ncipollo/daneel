@@ -54,8 +54,9 @@ async fn a_message_is_delivered_through_the_strategy() {
 }
 
 #[tokio::test]
-async fn the_default_five_phase_strategy_runs_end_to_end() {
+async fn the_default_six_phase_strategy_runs_end_to_end() {
     let steps = vec![
+        advance(),
         advance(),
         advance(),
         advance(),
@@ -68,7 +69,18 @@ async fn the_default_five_phase_strategy_runs_end_to_end() {
         chat.send("go", events::discard()).await.unwrap(),
         "all done"
     );
-    assert!(provider.prompts()[5].contains("PHASE 5 of 5: Deliver"));
+    assert!(provider.prompts()[6].contains("PHASE 6 of 6: Deliver"));
+}
+
+#[tokio::test]
+async fn triage_can_skip_straight_to_deliver() {
+    let skip = call("skip_to_phase", json!({ "phase": "Deliver" }));
+    let provider = script(vec![vec![skip], finish("hello back")]);
+    let mut chat = Chat::new(provider.clone(), Path::new(".").to_path_buf());
+    let reply = chat.send("hi", events::discard()).await.unwrap();
+    assert_eq!(reply, "hello back");
+    assert_eq!(provider.prompts().len(), 3);
+    assert!(provider.prompts()[2].contains("PHASE 6 of 6: Deliver"));
 }
 
 #[tokio::test]

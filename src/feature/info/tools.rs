@@ -3,12 +3,14 @@
 pub fn render() -> String {
     String::from(
         "BUILT-IN TOOLS\n\
-         read_file      every phase\n\
+         read_file, list_files, find_files, grep_files\n\
+         \x20              every phase (read-only; find_files matches names with\n\
+         \x20              * and ?, grep_files searches text, not a regex)\n\
          write_file, edit_file, invoke_shell\n\
          \x20              only in phases with can_write_working_directory = true\n\
          \x20              (see --info strategies); reviewed if safe tools is on\n\
-         Phases also get advance_phase, retry_phase, create_subtask and\n\
-         complete_task to move through the strategy.\n\
+         Phases also get advance_phase, skip_to_phase, retry_phase,\n\
+         create_subtask and complete_task to move through the strategy.\n\
          \n\
          CUSTOM TOOLS\n\
          Put a JavaScript file at ~/.daneel/tools/<name>.js. The file name\n\

@@ -5,9 +5,15 @@
 # terminal = true marks the last phase.
 
 [[phases]]
+name = "Triage"
+prompt = """
+Decide one thing: does this task need investigation or changes to files, or can you simply answer it now (a greeting, a question about yourself, general knowledge)? If you can just answer, call skip_to_phase with phase "Deliver". Otherwise call advance_phase."""
+settings = { can_write_working_directory = false, terminal = false }
+
+[[phases]]
 name = "Discover"
 prompt = """
-Look around before doing anything. Read the files and run the read-only commands you need to understand the task. Break it into small subtasks if that helps. Do not change anything yet."""
+Locate before you read. First use find_files (by name) or grep_files (by content) to find the files that matter, or list_files to see a folder. Then read_file only the files you found, never guess paths. Do not change anything yet. Break the task into small subtasks if that helps."""
 settings = { can_write_working_directory = false, terminal = false }
 
 [[phases]]

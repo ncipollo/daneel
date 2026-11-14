@@ -8,10 +8,11 @@ use crate::feature::tools::{AgentTool, ToolRegistry};
 
 const TASK_TYPE_HINT: &str = "Short kind of work, such as 'query' or 'code creation'";
 
-/// Adds the four interaction tools to `registry`, sharing one `state`.
+/// Adds the five interaction tools to `registry`, sharing one `state`.
 pub fn register_interaction_tools(registry: &mut ToolRegistry, state: &SharedState) {
     registry.register(Interaction::advance(state.clone()));
     registry.register(Interaction::retry(state.clone()));
+    registry.register(Interaction::skip(state.clone()));
     registry.register(Interaction::complete(state.clone()));
     registry.register(Interaction::subtask(state.clone()));
 }
@@ -55,6 +56,28 @@ impl Interaction {
                 let reason = string_arg(args, "reason").unwrap_or_default();
                 s.retry(&phase, &reason)
                     .map(|()| format!("ok: going back to {phase}"))
+            },
+            state,
+        }
+    }
+
+    fn skip(state: SharedState) -> Self {
+        Self {
+            name: "skip_to_phase",
+            description: "Jump ahead to a later phase, skipping the ones in between, when they are not needed.",
+            schema: json!({
+                "type": "object",
+                "properties": {
+                    "phase": { "type": "string", "description": "Later phase to jump to" },
+                    "reason": { "type": "string", "description": "Why the phases between are not needed" }
+                },
+                "required": ["phase"]
+            }),
+            action: |s, args| {
+                let phase = string_arg(args, "phase")?;
+                let reason = string_arg(args, "reason").unwrap_or_default();
+                s.skip(&phase, &reason)
+                    .map(|()| format!("ok: skipping to {phase}"))
             },
             state,
         }
@@ -142,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn registers_the_four_tools() {
+    fn registers_the_five_tools() {
         let (registry, _) = setup(0, false);
         let names: Vec<_> = registry.names().collect();
         assert_eq!(
@@ -151,7 +174,8 @@ mod tests {
                 "advance_phase",
                 "complete_task",
                 "create_subtask",
-                "retry_phase"
+                "retry_phase",
+                "skip_to_phase"
             ]
         );
     }
@@ -175,6 +199,27 @@ mod tests {
             .dispatch("retry_phase", json!({ "phase": "Deliver" }))
             .await;
         assert!(out.starts_with("error:"));
+    }
+
+    #[tokio::test]
+    async fn skip_records_the_target_and_rejects_earlier_phases() {
+        let (registry, state) = setup(1, false);
+        let out = registry
+            .dispatch("skip_to_phase", json!({ "phase": "Plan" }))
+            .await;
+        assert!(out.starts_with("error:") && out.contains("later phases are: Deliver"));
+        registry
+            .dispatch(
+                "skip_to_phase",
+                json!({ "phase": "deliver", "reason": "easy" }),
+            )
+            .await;
+        let signal = state.lock().unwrap().take_signal();
+        let expected = Signal::Skip {
+            phase: "Deliver".into(),
+            reason: "easy".into(),
+        };
+        assert_eq!(signal, Some(expected));
     }
 
     #[tokio::test]

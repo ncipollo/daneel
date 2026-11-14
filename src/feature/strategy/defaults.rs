@@ -58,7 +58,7 @@ mod tests {
     fn the_embedded_defaults_parse_and_validate() {
         assert!(builtin_strategy().validate().is_ok());
         assert!(builtin_tactic().validate().is_ok());
-        assert_eq!(builtin_strategy().phases.len(), 5);
+        assert_eq!(builtin_strategy().phases.len(), 6);
     }
 
     #[test]
@@ -69,7 +69,9 @@ mod tests {
         let tactic = load_tactic(dir.path(), "default").unwrap();
         assert_eq!(
             names(&strategy),
-            ["Discover", "Plan", "Execute", "Validate", "Deliver"]
+            [
+                "Triage", "Discover", "Plan", "Execute", "Validate", "Deliver"
+            ]
         );
         assert_eq!(names(&tactic), ["Plan", "Execute", "Validate", "Deliver"]);
     }
