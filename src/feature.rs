@@ -4,6 +4,7 @@ pub mod chat;
 pub mod config;
 pub mod events;
 pub mod greeting;
+pub mod interaction;
 pub mod oneshot;
 pub mod provider;
 pub mod providers;
