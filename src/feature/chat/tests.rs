@@ -211,3 +211,20 @@ fn completion_events_cover_success_and_failure() {
     let err = completion_events(&Err(ProviderError::Provider("x".into())));
     assert!(matches!(err[0].kind, EventKind::Error { .. }));
 }
+
+#[tokio::test]
+async fn triage_can_skip_to_any_later_phase() {
+    let names = ["Discover", "Plan", "Execute", "Validate", "Deliver"];
+    for (offset, name) in names.iter().enumerate() {
+        let skip = call("skip_to_phase", json!({ "phase": name }));
+        let number = offset + 2;
+        let mut steps = vec![vec![skip]];
+        steps.extend((number..6).map(|_| advance()));
+        steps.push(finish("done"));
+        let provider = script(steps);
+        let mut chat = Chat::new(provider.clone(), Path::new(".").to_path_buf());
+        assert_eq!(chat.send("hi", events::discard()).await.unwrap(), "done");
+        let expected = format!("PHASE {number} of 6: {name}");
+        assert!(provider.prompts()[2].contains(&expected), "{name}");
+    }
+}

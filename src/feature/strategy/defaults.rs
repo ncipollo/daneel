@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::feature::config;
 use crate::feature::strategy::PhaseList;
@@ -33,10 +33,34 @@ pub fn ensure_defaults(config_dir: &Path) -> io::Result<()> {
     write_if_missing(&paths::tactic_file(config_dir, name), DEFAULT_TACTIC)
 }
 
+/// `regenerate` for the real `~/.daneel` directory.
+pub fn regenerate_default_dir() -> Result<Vec<PathBuf>, String> {
+    let dir = config::default_dir().map_err(|e| e.to_string())?;
+    regenerate(&dir).map_err(|e| format!("could not write default strategies: {e}"))
+}
+
+/// Overwrites the default strategy and tactic files with the built-in ones,
+/// returning the paths written.
+pub fn regenerate(config_dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let name = paths::DEFAULT_NAME;
+    let files = [
+        (paths::strategy_file(config_dir, name), DEFAULT_STRATEGY),
+        (paths::tactic_file(config_dir, name), DEFAULT_TACTIC),
+    ];
+    for (path, contents) in &files {
+        write_file(path, contents)?;
+    }
+    Ok(files.into_iter().map(|(path, _)| path).collect())
+}
+
 fn write_if_missing(path: &Path, contents: &str) -> io::Result<()> {
     if path.exists() {
         return Ok(());
     }
+    write_file(path, contents)
+}
+
+fn write_file(path: &Path, contents: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -92,6 +116,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn regenerate_replaces_edited_files() {
+        let dir = TempDir::new().unwrap();
+        ensure_defaults(dir.path()).unwrap();
+        let path = paths::strategy_file(dir.path(), "default");
+        fs::write(&path, "# mine").unwrap();
+        let written = regenerate(dir.path()).unwrap();
+        assert_eq!(written.len(), 2);
+        assert!(load_strategy(dir.path(), "default").is_ok());
+    }
+
+    #[test]
+    fn regenerate_creates_missing_folders() {
+        let dir = TempDir::new().unwrap();
+        regenerate(dir.path()).unwrap();
+        assert!(load_tactic(dir.path(), "default").is_ok());
+    }
+
+    #[test]
+    fn triage_names_the_skip_argument() {
+        let strategy = builtin_strategy();
+        let prompt = &strategy.phases[0].prompt;
+        assert!(prompt.contains(r#"skip_to_phase {"phase": "Deliver""#));
     }
 
     #[test]

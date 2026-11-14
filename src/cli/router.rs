@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use crate::cli::{Cli, info, prompt, tui};
+use crate::cli::{Cli, info, prompt, regenerate, tui};
 use crate::feature::logging;
 use crate::feature::strategy::defaults;
 
@@ -10,6 +10,9 @@ pub fn run() -> ExitCode {
     let cli = Cli::parse();
     if let Some(topic) = &cli.info {
         return info::run(topic.as_deref());
+    }
+    if cli.regenerate_strategy {
+        return regenerate::run();
     }
     if let Err(message) = defaults::ensure_default_dir() {
         eprintln!("daneel: {message}");

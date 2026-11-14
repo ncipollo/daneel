@@ -45,7 +45,7 @@ fn footer(view: &PhaseView) -> String {
     }
     if !view.terminal {
         lines.push(
-            "To skip phases you do not need, call skip_to_phase with the name of a later phase."
+            "To skip phases you do not need, call skip_to_phase with the name of a later phase, for example {\"phase\": \"Deliver\"}."
                 .to_string(),
         );
     }

@@ -24,8 +24,8 @@ pub fn render() -> String {
          daneel writes the defaults (Triage, Discover, Plan, Execute, Validate,\n\
          Deliver; tactic Plan, Execute, Validate, Deliver) at startup only if\n\
          the files are missing, so edit them freely. daneel never overwrites\n\
-         a file, so a default.toml from before Triage existed has no\n\
-         Triage phase: delete it to get the new default back.\n\
+         a file at startup. To reset them to the built-in defaults, run\n\
+         daneel --regenerate-strategy (asks first; discards your edits).\n\
          \n\
          PHASE FORMAT\n\
          Each [[phases]] table has:\n\

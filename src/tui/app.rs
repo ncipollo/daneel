@@ -294,6 +294,19 @@ mod tests {
     }
 
     #[test]
+    fn tool_calls_show_their_arguments() {
+        let mut app = App::new("m");
+        app.apply(Event::new(EventKind::ToolCall {
+            name: "skip_to_phase".into(),
+            args: serde_json::json!({ "phase": "Deliver" }),
+        }));
+        let Entry::Tool(line) = &app.entries[0] else {
+            panic!("expected tool entry");
+        };
+        assert_eq!(line, r#"skip_to_phase {"phase":"Deliver"}"#);
+    }
+
+    #[test]
     fn tool_results_are_previewed_on_one_line() {
         let mut app = App::new("m");
         app.apply(Event::new(EventKind::ToolResult {

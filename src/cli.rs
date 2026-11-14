@@ -3,6 +3,7 @@
 
 pub mod info;
 pub mod prompt;
+pub mod regenerate;
 pub mod router;
 pub mod tui;
 
@@ -32,6 +33,11 @@ pub struct Cli {
     /// --info <TOPIC> prints one.
     #[arg(long, value_name = "TOPIC", num_args = 0..=1, conflicts_with = "message")]
     pub info: Option<Option<String>>,
+
+    /// Overwrite the default strategy and tactic files with the built-in ones
+    /// (asks for confirmation first) and exit.
+    #[arg(long, conflicts_with_all = ["info", "message", "prompt"])]
+    pub regenerate_strategy: bool,
 }
 
 #[cfg(test)]
@@ -82,6 +88,17 @@ mod tests {
         let cli = parse(&["--info", "providers"]).unwrap();
         assert_eq!(cli.info, Some(Some("providers".to_string())));
         assert!(cli.message.is_none());
+    }
+
+    #[test]
+    fn regenerate_strategy_stands_alone() {
+        assert!(
+            parse(&["--regenerate-strategy"])
+                .unwrap()
+                .regenerate_strategy
+        );
+        assert!(parse(&["--regenerate-strategy", "-p", "hi"]).is_err());
+        assert!(parse(&["--regenerate-strategy", "--info"]).is_err());
     }
 
     #[test]

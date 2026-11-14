@@ -7,7 +7,9 @@
 [[phases]]
 name = "Triage"
 prompt = """
-Decide one thing: does this task need investigation or changes to files, or can you simply answer it now (a greeting, a question about yourself, general knowledge)? If you can just answer, call skip_to_phase with phase "Deliver". Otherwise call advance_phase."""
+Decide one thing: does this task need investigation or changes to files, or can you simply answer it now (a greeting, a question about yourself, general knowledge)?
+- If you can just answer, call skip_to_phase with the argument phase set to "Deliver", like this: skip_to_phase {"phase": "Deliver", "reason": "simple greeting"}. Do not call advance_phase.
+- If it needs files looked at or changed, call advance_phase."""
 settings = { can_write_working_directory = false, terminal = false }
 
 [[phases]]
