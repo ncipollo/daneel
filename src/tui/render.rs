@@ -44,7 +44,7 @@ fn entry_lines(entry: &Entry) -> Vec<Line<'static>> {
     let (prefix, text, style) = match entry {
         Entry::User(t) => ("> ", t, Style::new().fg(Color::Cyan)),
         Entry::Assistant(t) => ("", t, Style::new()),
-        Entry::Tool(t) => ("", t, Style::new().fg(Color::DarkGray)),
+        Entry::Tool(t) | Entry::Progress(t) => ("", t, Style::new().fg(Color::DarkGray)),
         Entry::Error(t) => ("error: ", t, Style::new().fg(Color::Red)),
     };
     let mut lines: Vec<Line<'static>> = text
@@ -78,7 +78,11 @@ fn state_label(app: &App) -> String {
         return "ready".to_string();
     }
     let frame = SPINNER[(app.ticks as usize) % SPINNER.len()];
-    format!("{frame} working {}s", app.elapsed_secs())
+    let secs = app.elapsed_secs();
+    match &app.phase {
+        Some(phase) => format!("{frame} working {secs}s: {phase}"),
+        None => format!("{frame} working {secs}s"),
+    }
 }
 
 fn status_bar(app: &App) -> Paragraph<'static> {
@@ -123,6 +127,22 @@ mod tests {
         assert!(rendered(&app, 80, 10).contains("working 3s"));
         app.busy = false;
         assert!(rendered(&app, 80, 10).contains("ready"));
+    }
+
+    #[test]
+    fn busy_status_names_the_current_phase() {
+        let mut app = App::new("m");
+        app.busy = true;
+        app.phase = Some("Execute 3/5".into());
+        assert!(rendered(&app, 80, 10).contains("working 0s: Execute 3/5"));
+    }
+
+    #[test]
+    fn progress_lines_are_shown_in_the_history() {
+        let mut app = App::new("m");
+        app.entries
+            .push(Entry::Progress("task (query): look".into()));
+        assert!(rendered(&app, 40, 8).contains("task (query): look"));
     }
 
     #[test]

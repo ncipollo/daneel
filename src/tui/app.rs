@@ -11,6 +11,8 @@ pub enum Entry {
     User(String),
     Assistant(String),
     Tool(String),
+    /// Run progress, such as the task a message became.
+    Progress(String),
     Error(String),
 }
 
@@ -32,6 +34,8 @@ pub struct App {
     pub scroll_up: u16,
     /// Ticks since the running turn started; drives the spinner and elapsed time.
     pub ticks: u32,
+    /// Where the running turn is, such as `Plan 2/5`; empty between turns.
+    pub phase: Option<String>,
 }
 
 impl App {
@@ -43,6 +47,7 @@ impl App {
             busy: false,
             scroll_up: 0,
             ticks: 0,
+            phase: None,
         }
     }
 
@@ -72,6 +77,7 @@ impl App {
         self.input.clear();
         self.busy = true;
         self.ticks = 0;
+        self.phase = None;
         self.scroll_up = 0;
         self.entries.push(Entry::User(text.clone()));
         Action::Submit(text)
@@ -88,6 +94,11 @@ impl App {
         self.ticks / TICKS_PER_SECOND
     }
 
+    fn finish_turn(&mut self) {
+        self.busy = false;
+        self.phase = None;
+    }
+
     pub fn apply(&mut self, event: Event) {
         match event.kind {
             EventKind::ToolCall { name, args } => {
@@ -98,12 +109,31 @@ impl App {
                     .push(Entry::Tool(format!("  -> {}", preview(&output))));
             }
             EventKind::Message { text } => self.entries.push(Entry::Assistant(text)),
-            EventKind::Done => self.busy = false,
+            EventKind::Task {
+                task_type,
+                description,
+            } => self.entries.push(Entry::Progress(format!(
+                "task ({task_type}): {description}"
+            ))),
+            EventKind::Phase {
+                scope,
+                name,
+                number,
+                total,
+            } => self.phase = Some(phase_label(&scope, &name, number, total)),
+            EventKind::Done => self.finish_turn(),
             EventKind::Error { message } => {
                 self.entries.push(Entry::Error(summarize_error(&message)));
-                self.busy = false;
+                self.finish_turn();
             }
         }
+    }
+}
+
+fn phase_label(scope: &str, name: &str, number: usize, total: usize) -> String {
+    match scope {
+        "strategy" => format!("{name} {number}/{total}"),
+        sub => format!("{sub} > {name} {number}/{total}"),
     }
 }
 
@@ -183,6 +213,53 @@ mod tests {
         }));
         assert_eq!(app.entries, vec![Entry::Error("bad".into())]);
         assert!(!app.busy);
+    }
+
+    fn phase(scope: &str, name: &str, number: usize) -> Event {
+        Event::new(EventKind::Phase {
+            scope: scope.into(),
+            name: name.into(),
+            number,
+            total: 5,
+        })
+    }
+
+    #[test]
+    fn phase_events_track_where_the_turn_is() {
+        let mut app = App::new("m");
+        typed(&mut app, "hi");
+        app.submit();
+        app.apply(phase("strategy", "Plan", 2));
+        assert_eq!(app.phase.as_deref(), Some("Plan 2/5"));
+        app.apply(phase("subtask 1", "Execute", 2));
+        assert_eq!(app.phase.as_deref(), Some("subtask 1 > Execute 2/5"));
+        app.apply(Event::new(EventKind::Done));
+        assert_eq!(app.phase, None);
+    }
+
+    #[test]
+    fn errors_and_new_turns_clear_the_phase() {
+        let mut app = App::new("m");
+        app.apply(phase("strategy", "Plan", 2));
+        app.apply(Event::new(EventKind::Error {
+            message: "bad".into(),
+        }));
+        assert_eq!(app.phase, None);
+        app.apply(phase("strategy", "Plan", 2));
+        typed(&mut app, "again");
+        app.submit();
+        assert_eq!(app.phase, None);
+    }
+
+    #[test]
+    fn the_task_is_shown_as_a_progress_line() {
+        let mut app = App::new("m");
+        app.apply(Event::new(EventKind::Task {
+            task_type: "query".into(),
+            description: "look around".into(),
+        }));
+        let expected = Entry::Progress("task (query): look around".into());
+        assert_eq!(app.entries, vec![expected]);
     }
 
     #[test]

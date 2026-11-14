@@ -20,6 +20,8 @@ pub enum ProviderError {
     Tool(String),
     #[error("provider not configured: {0}")]
     NotConfigured(String),
+    #[error("run failed: {0}")]
+    Run(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

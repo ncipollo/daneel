@@ -3,10 +3,21 @@ use std::io;
 use std::path::Path;
 
 use crate::feature::config;
+use crate::feature::strategy::PhaseList;
 use crate::feature::strategy::paths;
 
 const DEFAULT_STRATEGY: &str = include_str!("defaults/strategy.toml");
 const DEFAULT_TACTIC: &str = include_str!("defaults/tactic.toml");
+
+/// The embedded default strategy, used when no file has been written yet.
+pub fn builtin_strategy() -> PhaseList {
+    toml::from_str(DEFAULT_STRATEGY).expect("the embedded strategy is valid")
+}
+
+/// The embedded default tactic.
+pub fn builtin_tactic() -> PhaseList {
+    toml::from_str(DEFAULT_TACTIC).expect("the embedded tactic is valid")
+}
 
 /// `ensure_defaults` for the real `~/.daneel` directory.
 pub fn ensure_default_dir() -> Result<(), String> {
@@ -41,6 +52,13 @@ mod tests {
 
     fn names(list: &crate::feature::strategy::PhaseList) -> Vec<&str> {
         list.phases.iter().map(|p| p.name.as_str()).collect()
+    }
+
+    #[test]
+    fn the_embedded_defaults_parse_and_validate() {
+        assert!(builtin_strategy().validate().is_ok());
+        assert!(builtin_tactic().validate().is_ok());
+        assert_eq!(builtin_strategy().phases.len(), 5);
     }
 
     #[test]

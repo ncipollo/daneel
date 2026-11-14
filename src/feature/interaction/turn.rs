@@ -1,13 +1,12 @@
 //! One phase of model work: the prompt is sent, and if the model neither signals
 //! nor creates subtasks it is nudged a couple of times before giving up.
 
-use std::path::Path;
-
+use crate::feature::interaction::environment::Environment;
 use crate::feature::interaction::register_interaction_tools;
 use crate::feature::interaction::state::{InteractionState, SharedState, Signal};
-use crate::feature::provider::{ChatMessage, ChatRequest, Provider, ProviderError, Role};
+use crate::feature::provider::{ChatMessage, ChatRequest, ProviderError, Role};
 use crate::feature::task::Task;
-use crate::feature::tools::{into_rig, phase_registry};
+use crate::feature::tools::{assemble, into_rig_observed};
 
 const INSTRUCTIONS: &str =
     "You are daneel, a careful assistant. Do exactly what the phase asks, using tools.";
@@ -24,8 +23,7 @@ pub struct TurnOutcome {
 }
 
 pub struct PhaseTurn<'a> {
-    pub provider: &'a dyn Provider,
-    pub working_dir: &'a Path,
+    pub env: &'a Environment<'a>,
     pub allow_write: bool,
 }
 
@@ -57,13 +55,14 @@ impl PhaseTurn<'_> {
         history: &[ChatMessage],
         prompt: &str,
     ) -> Result<String, ProviderError> {
-        let mut registry = phase_registry(self.working_dir, self.allow_write);
+        let env = self.env;
+        let mut registry = assemble(env.working_dir, env.tools, self.allow_write);
         register_interaction_tools(&mut registry, shared);
         let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
         request.history = history;
-        request.tools = into_rig(registry);
+        request.tools = into_rig_observed(registry, env.sink.clone());
         tracing::debug!(direction = "out", content = prompt, "model message");
-        let reply = self.provider.chat(request).await?;
+        let reply = env.provider.chat(request).await?;
         tracing::debug!(direction = "in", content = reply.as_str(), "model message");
         Ok(reply)
     }
@@ -101,10 +100,13 @@ fn message(role: Role, content: &str) -> ChatMessage {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use serde_json::json;
 
     use super::*;
     use crate::feature::script_provider::{ScriptProvider, call};
+    use crate::feature::tools::ToolSetup;
 
     fn state() -> InteractionState {
         InteractionState::new(vec!["Plan".into(), "Deliver".into()], 0, false)
@@ -112,9 +114,10 @@ mod tests {
     }
 
     async fn run(provider: &ScriptProvider) -> TurnOutcome {
+        let setup = ToolSetup::default();
+        let env = Environment::new(provider, Path::new("."), &setup);
         let turn = PhaseTurn {
-            provider,
-            working_dir: Path::new("."),
+            env: &env,
             allow_write: false,
         };
         turn.run(state(), "do it").await.unwrap()

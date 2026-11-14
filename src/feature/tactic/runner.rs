@@ -1,17 +1,12 @@
-use std::path::Path;
-
-use crate::feature::interaction::{InteractionState, PhaseTurn, PhaseView, Signal};
+use crate::feature::events::{Event, EventKind};
+use crate::feature::interaction::{Environment, InteractionState, PhaseTurn, PhaseView, Signal};
 use crate::feature::interaction::{brief, wrap_prompt};
-use crate::feature::provider::Provider;
-use crate::feature::session::Session;
 use crate::feature::strategy::{PhaseConfig, PhaseList};
 use crate::feature::tactic::{MAX_RETRIES, TacticError};
 use crate::feature::task::Task;
 
 pub struct TacticContext<'a> {
-    pub provider: &'a dyn Provider,
-    pub working_dir: &'a Path,
-    pub session: Option<&'a Session>,
+    pub env: &'a Environment<'a>,
     /// Names this run's phase outputs in the session, e.g. `subtask-1`.
     pub label: &'a str,
 }
@@ -35,11 +30,11 @@ pub async fn run_tactic(
     loop {
         let phase = &phases.phases[index];
         let terminal = index + 1 == phases.phases.len();
+        announce(ctx, phase, index, names.len());
         let state = InteractionState::new(names.clone(), index, terminal);
         let view = view_of(subtask, phase, (index, names.len()), terminal, &notes);
         let turn = PhaseTurn {
-            provider: ctx.provider,
-            working_dir: ctx.working_dir,
+            env: ctx.env,
             allow_write: phase.settings.can_write_working_directory,
         };
         let out = turn.run(state, &wrap_prompt(&view)).await?;
@@ -89,6 +84,15 @@ pub async fn run_tactic(
     }
 }
 
+fn announce(ctx: &TacticContext<'_>, phase: &PhaseConfig, index: usize, total: usize) {
+    (ctx.env.sink)(Event::new(EventKind::Phase {
+        scope: ctx.label.replace('-', " "),
+        name: phase.name.clone(),
+        number: index + 1,
+        total,
+    }));
+}
+
 fn view_of<'a>(
     subtask: &'a Task,
     phase: &'a PhaseConfig,
@@ -111,7 +115,7 @@ fn view_of<'a>(
 
 /// Keeps what each phase said in the session folder; failures are not fatal.
 fn save_output(ctx: &TacticContext<'_>, phase: &PhaseConfig, index: usize, reply: &str) {
-    if let Some(session) = ctx.session {
+    if let Some(session) = ctx.env.session {
         let name = format!("{}-{}.txt", ctx.label, index + 1);
         let _ = session.write_phase_output(&phase.name.to_lowercase(), &name, reply);
     }
@@ -119,13 +123,16 @@ fn save_output(ctx: &TacticContext<'_>, phase: &PhaseConfig, index: usize, reply
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::time::SystemTime;
 
     use serde_json::json;
 
     use super::*;
     use crate::feature::script_provider::{ScriptProvider, call};
+    use crate::feature::session::Session;
     use crate::feature::strategy::PhaseSettings;
+    use crate::feature::tools::ToolSetup;
 
     fn phases() -> PhaseList {
         let phase = |name: &str, write: bool| PhaseConfig {
@@ -155,10 +162,10 @@ mod tests {
     }
 
     async fn run(provider: &ScriptProvider) -> Result<TacticOutcome, TacticError> {
+        let setup = ToolSetup::default();
+        let env = Environment::new(provider, Path::new("."), &setup);
         let ctx = TacticContext {
-            provider,
-            working_dir: Path::new("."),
-            session: None,
+            env: &env,
             label: "subtask-1",
         };
         run_tactic(&ctx, &phases(), &Task::new("code", "write it")).await
@@ -185,6 +192,36 @@ mod tests {
         assert!(text.contains("tactic phase transition"));
         assert!(text.contains("from=\"Plan\"") && text.contains("to=\"Execute\""));
         assert!(text.contains("tactic complete"));
+    }
+
+    #[tokio::test]
+    async fn each_phase_is_announced_as_a_progress_event() {
+        let (sink, seen) = crate::feature::events::collector();
+        let setup = ToolSetup::default();
+        let provider = ScriptProvider::new(vec![advance(), advance(), advance(), finish("x")]);
+        let env = Environment::new(&provider, Path::new("."), &setup).with_sink(sink);
+        let ctx = TacticContext {
+            env: &env,
+            label: "subtask-2",
+        };
+        run_tactic(&ctx, &phases(), &Task::new("code", "go"))
+            .await
+            .unwrap();
+        let seen = seen.lock().unwrap();
+        let phases: Vec<_> = seen
+            .iter()
+            .filter_map(|k| match k {
+                EventKind::Phase {
+                    scope,
+                    name,
+                    number,
+                    total,
+                } => Some((scope.as_str(), name.as_str(), *number, *total)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(phases[0], ("subtask 2", "Plan", 1, 4));
+        assert_eq!(phases[3], ("subtask 2", "Deliver", 4, 4));
     }
 
     #[tokio::test]
@@ -242,10 +279,10 @@ mod tests {
         let root = tempfile::TempDir::new().unwrap();
         let session = Session::create(root.path(), SystemTime::now(), Path::new("."), "m").unwrap();
         let provider = ScriptProvider::new(vec![advance(), advance(), advance(), finish("x")]);
+        let setup = ToolSetup::default();
+        let env = Environment::new(&provider, Path::new("."), &setup).with_session(Some(&session));
         let ctx = TacticContext {
-            provider: &provider,
-            working_dir: Path::new("."),
-            session: Some(&session),
+            env: &env,
             label: "subtask-1",
         };
         run_tactic(&ctx, &phases(), &Task::new("code", "go"))
@@ -260,10 +297,10 @@ mod tests {
         let list: PhaseList =
             toml::from_str(include_str!("../strategy/defaults/tactic.toml")).unwrap();
         let provider = ScriptProvider::new(vec![advance(), advance(), advance(), finish("x")]);
+        let setup = ToolSetup::default();
+        let env = Environment::new(&provider, Path::new("."), &setup);
         let ctx = TacticContext {
-            provider: &provider,
-            working_dir: Path::new("."),
-            session: None,
+            env: &env,
             label: "s",
         };
         run_tactic(&ctx, &list, &Task::new("t", "d")).await.unwrap();

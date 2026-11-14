@@ -2,13 +2,12 @@
 //! every subtask the model creates through the tactic machine, and insists on
 //! delivering a result at the end.
 
-use std::path::Path;
-
 use thiserror::Error;
 
-use crate::feature::interaction::{InteractionState, PhaseTurn, PhaseView, Signal};
+use crate::feature::events::{Event, EventKind};
+use crate::feature::interaction::{Environment, InteractionState, PhaseTurn, PhaseView, Signal};
 use crate::feature::interaction::{brief, wrap_prompt};
-use crate::feature::provider::{Provider, ProviderError};
+use crate::feature::provider::ProviderError;
 use crate::feature::session::Session;
 use crate::feature::strategy::{PhaseConfig, PhaseList};
 use crate::feature::tactic::{self, TacticContext, TacticError};
@@ -34,11 +33,23 @@ pub enum StrategyError {
     Tactic(#[from] TacticError),
 }
 
+/// Provider failures keep their own error (so messages stay short and familiar);
+/// every other machine failure becomes a `Run` error.
+impl From<StrategyError> for ProviderError {
+    fn from(error: StrategyError) -> Self {
+        match error {
+            StrategyError::Provider(inner)
+            | StrategyError::Tactic(TacticError::Provider(inner)) => inner,
+            other => ProviderError::Run(other.to_string()),
+        }
+    }
+}
+
 pub struct StrategyContext<'a> {
-    pub provider: &'a dyn Provider,
-    pub working_dir: &'a Path,
-    pub session: Option<&'a Session>,
+    pub env: &'a Environment<'a>,
     pub tactic: &'a PhaseList,
+    /// What came up earlier in the conversation; it starts every phase's notes.
+    pub background: &'a [String],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,12 +80,16 @@ pub async fn run_strategy(
     task: &Task,
 ) -> Result<StrategyOutcome, StrategyError> {
     strategy.validate().map_err(StrategyError::Invalid)?;
-    record_task(ctx.session, task);
+    record_task(ctx.env.session, task);
+    (ctx.env.sink)(Event::new(EventKind::Task {
+        task_type: task.task_type.clone(),
+        description: task.description.clone(),
+    }));
     let mut run = Run {
         ctx,
         strategy,
         task,
-        notes: Vec::new(),
+        notes: ctx.background.to_vec(),
         subtasks_run: 0,
     };
     let (mut index, mut retries) = (0, 0);
@@ -97,6 +112,7 @@ impl Run<'_> {
     async fn phase(&mut self, index: usize) -> Result<Step, StrategyError> {
         let phase = &self.strategy.phases[index];
         let terminal = index + 1 == self.strategy.phases.len();
+        self.announce(phase, index);
         for _ in 0..MAX_ROUNDS {
             let out = self.turn(index, terminal).await?;
             self.save_output(phase, index, &out.reply);
@@ -158,8 +174,7 @@ impl Run<'_> {
             prompt: &phase.prompt,
         };
         let turn = PhaseTurn {
-            provider: self.ctx.provider,
-            working_dir: self.ctx.working_dir,
+            env: self.ctx.env,
             allow_write: phase.settings.can_write_working_directory,
         };
         Ok(turn.run(state, &wrap_prompt(&view)).await?)
@@ -168,12 +183,10 @@ impl Run<'_> {
     async fn run_subtasks(&mut self, subtasks: Vec<Task>) -> Result<(), StrategyError> {
         for subtask in subtasks {
             self.subtasks_run += 1;
-            record_task(self.ctx.session, &subtask);
+            record_task(self.ctx.env.session, &subtask);
             let label = format!("subtask-{}", self.subtasks_run);
             let tactic_ctx = TacticContext {
-                provider: self.ctx.provider,
-                working_dir: self.ctx.working_dir,
-                session: self.ctx.session,
+                env: self.ctx.env,
                 label: &label,
             };
             let outcome = tactic::run_tactic(&tactic_ctx, self.ctx.tactic, &subtask).await?;
@@ -187,13 +200,22 @@ impl Run<'_> {
         Ok(())
     }
 
+    fn announce(&self, phase: &PhaseConfig, index: usize) {
+        (self.ctx.env.sink)(Event::new(EventKind::Phase {
+            scope: "strategy".to_string(),
+            name: phase.name.clone(),
+            number: index + 1,
+            total: self.strategy.phases.len(),
+        }));
+    }
+
     fn position(&self, name: &str) -> usize {
         let phases = &self.strategy.phases;
         phases.iter().position(|p| p.name == name).unwrap_or(0)
     }
 
     fn save_output(&self, phase: &PhaseConfig, index: usize, reply: &str) {
-        if let Some(session) = self.ctx.session {
+        if let Some(session) = self.ctx.env.session {
             let name = format!("strategy-{}.txt", index + 1);
             let _ = session.write_phase_output(&phase.name.to_lowercase(), &name, reply);
         }
@@ -208,6 +230,7 @@ fn record_task(session: Option<&Session>, task: &Task) {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::time::SystemTime;
 
     use serde_json::json;
@@ -215,6 +238,7 @@ mod tests {
     use super::*;
     use crate::feature::script_provider::{Call, ScriptProvider, call};
     use crate::feature::strategy::PhaseSettings;
+    use crate::feature::tools::ToolSetup;
 
     fn list(names: [&str; 2]) -> PhaseList {
         let phase = |name: &str, terminal: bool| PhaseConfig {
@@ -246,12 +270,20 @@ mod tests {
         provider: &ScriptProvider,
         session: Option<&Session>,
     ) -> Result<StrategyOutcome, StrategyError> {
+        let setup = ToolSetup::default();
+        let env = Environment::new(provider, Path::new("."), &setup);
+        run_in(&env.with_session(session), &[]).await
+    }
+
+    async fn run_in(
+        env: &Environment<'_>,
+        background: &[String],
+    ) -> Result<StrategyOutcome, StrategyError> {
         let (strategy, tactic) = (list(["Discover", "Deliver"]), list(["Do", "Wrap"]));
         let ctx = StrategyContext {
-            provider,
-            working_dir: Path::new("."),
-            session,
+            env,
             tactic: &tactic,
+            background,
         };
         run_strategy(&ctx, &strategy, &Task::new("query", "answer it")).await
     }
@@ -285,6 +317,37 @@ mod tests {
         let text = logs.text();
         assert!(text.contains("strategy phase transition"));
         assert!(text.contains("strategy delivered") && text.contains("the answer"));
+    }
+
+    #[tokio::test]
+    async fn the_task_and_every_phase_are_announced() {
+        let (sink, seen) = crate::feature::events::collector();
+        let provider = ScriptProvider::new(vec![advance(), finish("d")]);
+        let setup = ToolSetup::default();
+        let env = Environment::new(&provider, Path::new("."), &setup).with_sink(sink);
+        run_in(&env, &[]).await.unwrap();
+        let seen = seen.lock().unwrap();
+        assert!(
+            matches!(&seen[0], EventKind::Task { description, .. } if description == "answer it")
+        );
+        let names: Vec<_> = seen
+            .iter()
+            .filter_map(|k| match k {
+                EventKind::Phase { scope, name, .. } if scope == "strategy" => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, ["Discover", "Deliver"]);
+    }
+
+    #[tokio::test]
+    async fn background_reaches_the_phase_prompts() {
+        let provider = ScriptProvider::new(vec![advance(), finish("d")]);
+        let setup = ToolSetup::default();
+        let env = Environment::new(&provider, Path::new("."), &setup);
+        let background = vec!["Earlier you were asked: fix it".to_string()];
+        run_in(&env, &background).await.unwrap();
+        assert!(provider.prompts()[0].contains("- Earlier you were asked: fix it"));
     }
 
     #[tokio::test]
@@ -348,11 +411,12 @@ mod tests {
     async fn an_invalid_strategy_is_rejected() {
         let tactic = list(["Do", "Wrap"]);
         let provider = ScriptProvider::new(vec![]);
+        let setup = ToolSetup::default();
+        let env = Environment::new(&provider, Path::new("."), &setup);
         let ctx = StrategyContext {
-            provider: &provider,
-            working_dir: Path::new("."),
-            session: None,
+            env: &env,
             tactic: &tactic,
+            background: &[],
         };
         let empty = PhaseList { phases: vec![] };
         let err = run_strategy(&ctx, &empty, &Task::new("t", "d"))

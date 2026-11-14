@@ -13,7 +13,7 @@ pub mod rig_adapter;
 pub mod safety;
 pub mod write_file;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use agent_tool::AgentTool;
@@ -31,18 +31,23 @@ pub fn builtin_registry(working_dir: &Path) -> ToolRegistry {
     phase_registry(working_dir, true)
 }
 
-/// The tools a chat turn gets: the built-ins (write and shell tools behind a
-/// safety review when `safety` is set), then any custom scripts in `tools_dir`.
-pub fn assemble(
-    working_dir: &Path,
-    safety: Option<&Arc<dyn Validator>>,
-    tools_dir: Option<&Path>,
-) -> ToolRegistry {
-    let mut registry = builtin_registry(working_dir);
-    if let Some(validator) = safety {
+/// What every tool set is built with: an optional safety reviewer and the folder
+/// of custom JavaScript tools.
+#[derive(Clone, Default)]
+pub struct ToolSetup {
+    pub safety: Option<Arc<dyn Validator>>,
+    pub tools_dir: Option<PathBuf>,
+}
+
+/// The tools for one phase: `read_file`, plus the write and shell tools when
+/// `allow_write` is set (behind a safety review when the setup has one), then
+/// any custom scripts. Read-only phases get no shell, so no custom tools either.
+pub fn assemble(working_dir: &Path, setup: &ToolSetup, allow_write: bool) -> ToolRegistry {
+    let mut registry = phase_registry(working_dir, allow_write);
+    if let Some(validator) = &setup.safety {
         safety::guard(&mut registry, validator, working_dir);
     }
-    if let Some(dir) = tools_dir {
+    if let Some(dir) = &setup.tools_dir {
         add_custom_tools(&mut registry, dir, working_dir);
     }
     registry
