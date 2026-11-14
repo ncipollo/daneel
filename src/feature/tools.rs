@@ -24,18 +24,31 @@ use write_file::WriteFile;
 
 /// The four basic tools, all operating relative to `working_dir`.
 pub fn builtin_registry(working_dir: &Path) -> ToolRegistry {
+    phase_registry(working_dir, true)
+}
+
+/// `read_file`, plus the tools that change things when `allow_write` is set.
+pub fn phase_registry(working_dir: &Path, allow_write: bool) -> ToolRegistry {
     let dir = working_dir.to_path_buf();
     let mut registry = ToolRegistry::new();
     registry.register(ReadFile::new(dir.clone()));
-    registry.register(WriteFile::new(dir.clone()));
-    registry.register(EditFile::new(dir.clone()));
-    registry.register(InvokeShell::new(dir));
+    if allow_write {
+        registry.register(WriteFile::new(dir.clone()));
+        registry.register(EditFile::new(dir.clone()));
+        registry.register(InvokeShell::new(dir));
+    }
     registry
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_only_phases_only_get_read_file() {
+        let registry = phase_registry(Path::new("."), false);
+        assert_eq!(registry.names().collect::<Vec<_>>(), ["read_file"]);
+    }
 
     #[test]
     fn builtin_registry_has_the_four_tools() {

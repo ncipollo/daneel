@@ -52,7 +52,8 @@ impl Interaction {
             }),
             action: |s, args| {
                 let phase = string_arg(args, "phase")?;
-                s.retry(&phase)
+                let reason = string_arg(args, "reason").unwrap_or_default();
+                s.retry(&phase, &reason)
                     .map(|()| format!("ok: going back to {phase}"))
             },
             state,
@@ -186,7 +187,8 @@ mod tests {
         assert_eq!(
             signal,
             Some(Signal::Retry {
-                phase: "Plan".into()
+                phase: "Plan".into(),
+                reason: String::new()
             })
         );
         registry

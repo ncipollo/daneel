@@ -8,7 +8,7 @@ pub type SharedState = Arc<Mutex<InteractionState>>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Signal {
     Advance,
-    Retry { phase: String },
+    Retry { phase: String, reason: String },
     Complete { summary: String },
 }
 
@@ -58,7 +58,7 @@ impl InteractionState {
         Ok(())
     }
 
-    pub fn retry(&mut self, phase: &str) -> Result<(), String> {
+    pub fn retry(&mut self, phase: &str, reason: &str) -> Result<(), String> {
         self.ensure_unsignalled()?;
         let earlier = &self.phases[..self.current];
         let found = earlier.iter().find(|name| name.eq_ignore_ascii_case(phase));
@@ -70,6 +70,7 @@ impl InteractionState {
         };
         self.signal = Some(Signal::Retry {
             phase: name.clone(),
+            reason: reason.trim().to_string(),
         });
         Ok(())
     }
@@ -97,6 +98,11 @@ impl InteractionState {
         Ok(())
     }
 
+    /// True once the model has signalled or created a subtask.
+    pub fn has_acted(&self) -> bool {
+        self.signal.is_some() || !self.created.is_empty()
+    }
+
     pub fn take_signal(&mut self) -> Option<Signal> {
         self.signal.take()
     }
@@ -113,7 +119,7 @@ impl InteractionState {
     }
 
     fn ensure_no_open_subtasks(&self, action: &str) -> Result<(), String> {
-        match self.open_subtasks {
+        match self.open_subtasks + self.created.len() {
             0 => Ok(()),
             n => Err(format!("cannot {action}: {n} subtasks are still open")),
         }
@@ -159,14 +165,13 @@ mod tests {
     #[test]
     fn retry_targets_earlier_phases_only() {
         let mut s = state(2, true);
-        s.retry("execute").unwrap();
-        assert_eq!(
-            s.take_signal(),
-            Some(Signal::Retry {
-                phase: "Execute".into()
-            })
-        );
-        let err = state(1, false).retry("Deliver").unwrap_err();
+        s.retry("execute", "tests failed").unwrap();
+        let expected = Signal::Retry {
+            phase: "Execute".into(),
+            reason: "tests failed".into(),
+        };
+        assert_eq!(s.take_signal(), Some(expected));
+        let err = state(1, false).retry("Deliver", "").unwrap_err();
         assert!(err.contains("earlier phases are: Plan"));
     }
 
