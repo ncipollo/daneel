@@ -9,7 +9,8 @@ use crate::feature::events::{Event, EventKind, EventSink};
 use crate::feature::provider::{ChatMessage, ChatRequest, Provider, ProviderError, Role};
 use crate::feature::providers::{ProviderSpec, build_provider};
 use crate::feature::session::{self, Session};
-use crate::feature::tools::{builtin_registry, into_rig_observed};
+use crate::feature::tools::safety::validator_from;
+use crate::feature::tools::{Validator, assemble, into_rig_observed};
 
 const INSTRUCTIONS: &str =
     "You are daneel, a careful assistant. Use the available tools when they help.";
@@ -19,6 +20,7 @@ pub struct Chat {
     working_dir: PathBuf,
     history: Vec<ChatMessage>,
     session: Option<Session>,
+    safety: Option<Arc<dyn Validator>>,
 }
 
 impl Chat {
@@ -28,6 +30,7 @@ impl Chat {
             working_dir,
             history: Vec::new(),
             session: None,
+            safety: None,
         }
     }
 
@@ -41,11 +44,18 @@ impl Chat {
         let model = spec.model().to_string();
         let mut chat = Self::new(build_provider(spec), working_dir.clone());
         chat.session = session::start_default(&working_dir, &model);
+        chat.safety = validator_from(&config.settings);
         Ok((chat, model))
     }
 
     pub fn with_session(mut self, session: Session) -> Self {
         self.session = Some(session);
+        self
+    }
+
+    /// Puts write and shell tools behind a safety review by `validator`.
+    pub fn with_safety(mut self, validator: Arc<dyn Validator>) -> Self {
+        self.safety = Some(validator);
         self
     }
 
@@ -73,7 +83,7 @@ impl Chat {
         );
         let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
         request.history = &self.history;
-        request.tools = into_rig_observed(builtin_registry(&self.working_dir), sink);
+        request.tools = into_rig_observed(assemble(&self.working_dir, self.safety.as_ref()), sink);
         let reply = match self.provider.chat(request).await {
             Ok(reply) => reply,
             Err(err) => {
@@ -214,6 +224,22 @@ mod tests {
         let mut chat = Chat::new(Arc::new(Failing), PathBuf::from("."));
         let _ = chat.send("hi", events::discard()).await;
         assert!(logs.text().contains("kaboom"));
+    }
+
+    #[tokio::test]
+    async fn a_blocked_write_never_touches_the_disk() {
+        use crate::feature::script_provider::{ScriptProvider, call};
+        use crate::feature::tools::safety::FixedValidator;
+        let dir = tempfile::TempDir::new().unwrap();
+        let write = call(
+            "write_file",
+            serde_json::json!({ "path": "x.txt", "content": "hi" }),
+        );
+        let provider = Arc::new(ScriptProvider::new(vec![vec![write]]));
+        let validator = Arc::new(FixedValidator::unsafe_because("nope"));
+        let mut chat = Chat::new(provider, dir.path().to_path_buf()).with_safety(validator);
+        chat.send("go", events::discard()).await.unwrap();
+        assert!(!dir.path().join("x.txt").exists());
     }
 
     #[test]

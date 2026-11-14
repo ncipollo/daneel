@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 
 pub use error::ConfigError;
 pub use models::{ModelEntry, ModelsConfig, ProviderConfig};
-pub use settings::Settings;
+pub use settings::{SafeToolsSettings, Settings};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Config {

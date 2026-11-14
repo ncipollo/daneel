@@ -9,13 +9,16 @@ pub mod output;
 pub mod read_file;
 pub mod registry;
 pub mod rig_adapter;
+pub mod safety;
 pub mod write_file;
 
 use std::path::Path;
+use std::sync::Arc;
 
 pub use agent_tool::AgentTool;
 pub use registry::ToolRegistry;
 pub use rig_adapter::{into_rig, into_rig_observed};
+pub use safety::Validator;
 
 use edit_file::EditFile;
 use invoke_shell::InvokeShell;
@@ -25,6 +28,16 @@ use write_file::WriteFile;
 /// The four basic tools, all operating relative to `working_dir`.
 pub fn builtin_registry(working_dir: &Path) -> ToolRegistry {
     phase_registry(working_dir, true)
+}
+
+/// The tools a chat turn gets: the built-ins, with the write and shell tools
+/// behind a safety review when `safety` is set.
+pub fn assemble(working_dir: &Path, safety: Option<&Arc<dyn Validator>>) -> ToolRegistry {
+    let mut registry = builtin_registry(working_dir);
+    if let Some(validator) = safety {
+        safety::guard(&mut registry, validator, working_dir);
+    }
+    registry
 }
 
 /// `read_file`, plus the tools that change things when `allow_write` is set.
