@@ -105,12 +105,23 @@ impl Run<'_> {
             let ran = !out.created.is_empty();
             self.run_subtasks(out.created).await?;
             match out.signal {
-                Some(Signal::Advance) => return Ok(Step::Next),
-                Some(Signal::Complete { summary }) => return Ok(Step::Delivered(summary)),
+                Some(Signal::Advance) => {
+                    tracing::info!(from = phase.name.as_str(), "strategy phase transition");
+                    return Ok(Step::Next);
+                }
+                Some(Signal::Complete { summary }) => {
+                    tracing::info!(summary = summary.as_str(), "strategy delivered");
+                    return Ok(Step::Delivered(summary));
+                }
                 Some(Signal::Retry {
                     phase: target,
                     reason,
                 }) => {
+                    tracing::info!(
+                        from = phase.name.as_str(),
+                        to = target.as_str(),
+                        "strategy phase transition (retry)"
+                    );
                     self.notes.push(format!("went back to {target}: {reason}"));
                     return Ok(Step::Back(self.position(&target)));
                 }
@@ -264,6 +275,16 @@ mod tests {
         assert!(prompts[1].contains("PHASE 1 of 2: Do"));
         assert!(prompts[5].contains("subtask 'look' done: found it"));
         assert!(prompts[6].contains("PHASE 2 of 2: Deliver"));
+    }
+
+    #[tokio::test]
+    async fn phase_transitions_and_delivery_are_logged() {
+        let logs = crate::feature::log_capture::capture();
+        let provider = ScriptProvider::new(vec![advance(), finish("the answer")]);
+        run(&provider, None).await.unwrap();
+        let text = logs.text();
+        assert!(text.contains("strategy phase transition"));
+        assert!(text.contains("strategy delivered") && text.contains("the answer"));
     }
 
     #[tokio::test]

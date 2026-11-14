@@ -54,6 +54,7 @@ impl InteractionState {
             return Err("this is the last phase; call complete_task instead".to_string());
         }
         self.ensure_no_open_subtasks("advance")?;
+        self.log("advance requested");
         self.signal = Some(Signal::Advance);
         Ok(())
     }
@@ -68,6 +69,12 @@ impl InteractionState {
                 earlier.join(", ")
             ));
         };
+        tracing::info!(
+            phase = self.phase_name(),
+            target = name.as_str(),
+            reason,
+            "retry requested"
+        );
         self.signal = Some(Signal::Retry {
             phase: name.clone(),
             reason: reason.trim().to_string(),
@@ -81,6 +88,7 @@ impl InteractionState {
             return Err("this is not the last phase; call advance_phase instead".to_string());
         }
         self.ensure_no_open_subtasks("complete")?;
+        tracing::info!(phase = self.phase_name(), summary, "complete requested");
         self.signal = Some(Signal::Complete {
             summary: summary.trim().to_string(),
         });
@@ -94,6 +102,12 @@ impl InteractionState {
         if task.description.trim().is_empty() {
             return Err("a subtask needs a description".to_string());
         }
+        tracing::info!(
+            phase = self.phase_name(),
+            task_type = task.task_type.as_str(),
+            description = task.description.as_str(),
+            "subtask created"
+        );
         self.created.push(task);
         Ok(())
     }
@@ -109,6 +123,14 @@ impl InteractionState {
 
     pub fn take_created(&mut self) -> Vec<Task> {
         std::mem::take(&mut self.created)
+    }
+
+    fn phase_name(&self) -> &str {
+        self.phases.get(self.current).map_or("?", String::as_str)
+    }
+
+    fn log(&self, what: &str) {
+        tracing::info!(phase = self.phase_name(), "{what}");
     }
 
     fn ensure_unsignalled(&self) -> Result<(), String> {
@@ -133,6 +155,19 @@ mod tests {
     fn state(current: usize, terminal: bool) -> InteractionState {
         let phases = ["Plan", "Execute", "Deliver"].map(String::from).to_vec();
         InteractionState::new(phases, current, terminal)
+    }
+
+    #[test]
+    fn interactions_are_logged() {
+        let logs = crate::feature::log_capture::capture();
+        let mut s = state(1, false).with_subtasks(true, 0);
+        s.create_subtask(Task::new("query", "look around")).unwrap();
+        s.take_created();
+        s.retry("plan", "bad plan").unwrap();
+        let text = logs.text();
+        assert!(text.contains("subtask created") && text.contains("look around"));
+        assert!(text.contains("retry requested") && text.contains("bad plan"));
+        assert!(text.contains("phase=\"Execute\""));
     }
 
     #[test]

@@ -5,6 +5,9 @@ pub mod config;
 pub mod events;
 pub mod greeting;
 pub mod interaction;
+#[cfg(test)]
+pub mod log_capture;
+pub mod logging;
 pub mod oneshot;
 pub mod provider;
 pub mod providers;

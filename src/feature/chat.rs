@@ -49,6 +49,12 @@ impl Chat {
         self
     }
 
+    fn session_id(&self) -> &str {
+        self.session
+            .as_ref()
+            .map_or("none", |s| s.metadata().id.as_str())
+    }
+
     fn record(&self, role: &str, content: &str) {
         if let Some(session) = &self.session {
             let _ = session.append_message(role, content);
@@ -59,16 +65,29 @@ impl Chat {
     /// exchange is added to the history.
     pub async fn send(&mut self, prompt: &str, sink: EventSink) -> Result<String, ProviderError> {
         self.record("user", prompt);
+        tracing::debug!(
+            session = self.session_id(),
+            direction = "out",
+            content = prompt,
+            "model message"
+        );
         let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
         request.history = &self.history;
         request.tools = into_rig_observed(builtin_registry(&self.working_dir), sink);
         let reply = match self.provider.chat(request).await {
             Ok(reply) => reply,
             Err(err) => {
+                tracing::error!(session = self.session_id(), error = %err, "model error");
                 self.record("error", &err.to_string());
                 return Err(err);
             }
         };
+        tracing::debug!(
+            session = self.session_id(),
+            direction = "in",
+            content = reply.as_str(),
+            "model message"
+        );
         self.record("assistant", &reply);
         self.history.push(message(Role::User, prompt));
         self.history.push(message(Role::Assistant, &reply));
@@ -174,6 +193,27 @@ mod tests {
         assert!(chat.send("hi", events::discard()).await.is_err());
         let text = std::fs::read_to_string(log).unwrap();
         assert!(text.contains(r#""role":"error","content":"provider error: kaboom""#));
+    }
+
+    #[tokio::test]
+    async fn messages_in_and_out_are_logged() {
+        let logs = crate::feature::log_capture::capture();
+        let mut chat = Chat::new(
+            Arc::new(Recorder(Mutex::new(Vec::new()))),
+            PathBuf::from("."),
+        );
+        chat.send("hello there", events::discard()).await.unwrap();
+        let text = logs.text();
+        assert!(text.contains("direction=\"out\"") && text.contains("hello there"));
+        assert!(text.contains("direction=\"in\"") && text.contains("re:hello there"));
+    }
+
+    #[tokio::test]
+    async fn failures_are_logged() {
+        let logs = crate::feature::log_capture::capture();
+        let mut chat = Chat::new(Arc::new(Failing), PathBuf::from("."));
+        let _ = chat.send("hi", events::discard()).await;
+        assert!(logs.text().contains("kaboom"));
     }
 
     #[test]

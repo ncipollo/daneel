@@ -47,8 +47,23 @@ pub async fn run_tactic(
         notes.push(format!("{}: {}", phase.name, brief(&out.reply)));
         match out.signal {
             None => return Err(TacticError::Stalled(phase.name.clone())),
-            Some(Signal::Advance) => index += 1,
-            Some(Signal::Complete { summary }) => return Ok(TacticOutcome { summary }),
+            Some(Signal::Advance) => {
+                tracing::info!(
+                    label = ctx.label,
+                    from = phase.name.as_str(),
+                    to = names[index + 1].as_str(),
+                    "tactic phase transition"
+                );
+                index += 1;
+            }
+            Some(Signal::Complete { summary }) => {
+                tracing::info!(
+                    label = ctx.label,
+                    summary = summary.as_str(),
+                    "tactic complete"
+                );
+                return Ok(TacticOutcome { summary });
+            }
             Some(Signal::Retry {
                 phase: target,
                 reason,
@@ -62,6 +77,13 @@ pub async fn run_tactic(
                     phase.name
                 ));
                 index = names.iter().position(|n| *n == target).unwrap_or(0);
+                tracing::info!(
+                    label = ctx.label,
+                    from = phase.name.as_str(),
+                    to = target.as_str(),
+                    retries,
+                    "tactic phase transition (retry)"
+                );
             }
         }
     }
@@ -152,6 +174,17 @@ mod tests {
         assert!(prompts[0].contains("PHASE 1 of 4: Plan"));
         assert!(prompts[3].contains("PHASE 4 of 4: Deliver"));
         assert!(prompts[1].contains("- Plan: scripted reply"));
+    }
+
+    #[tokio::test]
+    async fn phase_transitions_are_logged() {
+        let logs = crate::feature::log_capture::capture();
+        let provider = ScriptProvider::new(vec![advance(), advance(), advance(), finish("done")]);
+        run(&provider).await.unwrap();
+        let text = logs.text();
+        assert!(text.contains("tactic phase transition"));
+        assert!(text.contains("from=\"Plan\"") && text.contains("to=\"Execute\""));
+        assert!(text.contains("tactic complete"));
     }
 
     #[tokio::test]

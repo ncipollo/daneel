@@ -35,6 +35,7 @@ impl ToolDyn for RigTool {
         Box::pin(async move {
             let name = self.definition.name.clone();
             let parsed = serde_json::from_str::<Value>(&args);
+            tracing::info!(tool = name.as_str(), args = args.as_str(), "tool call");
             self.emit(EventKind::ToolCall {
                 name: name.clone(),
                 args: parsed
@@ -45,6 +46,11 @@ impl ToolDyn for RigTool {
                 Ok(value) => self.registry.dispatch(&name, value).await,
                 Err(e) => format!("error: invalid arguments: {e}"),
             };
+            tracing::info!(
+                tool = name.as_str(),
+                output = output.as_str(),
+                "tool result"
+            );
             self.emit(EventKind::ToolResult {
                 name,
                 output: output.clone(),
@@ -135,6 +141,18 @@ mod tests {
         let kinds = seen.lock().unwrap();
         assert!(matches!(&kinds[0], EventKind::ToolCall { name, .. } if name == "upper"));
         assert!(matches!(&kinds[1], EventKind::ToolResult { output, .. } if output == "HI"));
+    }
+
+    #[tokio::test]
+    async fn tool_calls_are_logged() {
+        let logs = crate::feature::log_capture::capture();
+        tools()[0]
+            .call(r#"{"text":"hi"}"#.to_string())
+            .await
+            .unwrap();
+        let text = logs.text();
+        assert!(text.contains("tool call") && text.contains("tool=\"upper\""));
+        assert!(text.contains("tool result") && text.contains("HI"));
     }
 
     #[tokio::test]

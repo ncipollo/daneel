@@ -62,7 +62,10 @@ impl PhaseTurn<'_> {
         let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
         request.history = history;
         request.tools = into_rig(registry);
-        self.provider.chat(request).await
+        tracing::debug!(direction = "out", content = prompt, "model message");
+        let reply = self.provider.chat(request).await?;
+        tracing::debug!(direction = "in", content = reply.as_str(), "model message");
+        Ok(reply)
     }
 }
 
