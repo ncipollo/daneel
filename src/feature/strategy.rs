@@ -3,6 +3,7 @@
 
 pub mod defaults;
 pub mod load;
+pub mod machine;
 pub mod paths;
 
 use serde::Deserialize;
