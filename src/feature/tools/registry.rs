@@ -22,6 +22,17 @@ impl ToolRegistry {
         self.tools.insert(tool.name().to_string(), Arc::new(tool));
     }
 
+    pub fn get(&self, name: &str) -> Option<Arc<dyn AgentTool>> {
+        self.tools.get(name).cloned()
+    }
+
+    /// Replaces every tool with `f(tool)`, e.g. to wrap some of them.
+    pub fn map_tools(&mut self, f: impl Fn(Arc<dyn AgentTool>) -> Arc<dyn AgentTool>) {
+        for tool in self.tools.values_mut() {
+            *tool = f(Arc::clone(tool));
+        }
+    }
+
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.tools.keys().map(String::as_str)
     }
