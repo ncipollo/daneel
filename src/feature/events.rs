@@ -11,11 +11,33 @@ pub const SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventKind {
-    ToolCall { name: String, args: Value },
-    ToolResult { name: String, output: String },
-    Message { text: String },
+    ToolCall {
+        name: String,
+        args: Value,
+    },
+    ToolResult {
+        name: String,
+        output: String,
+    },
+    Message {
+        text: String,
+    },
+    /// The task a chat message was turned into.
+    Task {
+        task_type: String,
+        description: String,
+    },
+    /// A strategy or tactic phase is starting. `scope` is `strategy` or `subtask N`.
+    Phase {
+        scope: String,
+        name: String,
+        number: usize,
+        total: usize,
+    },
     Done,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -45,6 +67,17 @@ pub fn discard() -> EventSink {
     Arc::new(|_| {})
 }
 
+/// Test helper: a sink that remembers what it was sent.
+#[cfg(test)]
+pub fn collector() -> (EventSink, Arc<std::sync::Mutex<Vec<EventKind>>>) {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = Arc::clone(&seen);
+    (
+        Arc::new(move |e: Event| log.lock().unwrap().push(e.kind)),
+        seen,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,6 +98,25 @@ mod tests {
         let value: Value = serde_json::from_str(&event.to_line()).unwrap();
         assert_eq!(value["type"], "tool_call");
         assert_eq!(value["args"]["path"], "a");
+    }
+
+    #[test]
+    fn progress_events_serialise_flat() {
+        let phase = Event::new(EventKind::Phase {
+            scope: "strategy".into(),
+            name: "Plan".into(),
+            number: 2,
+            total: 5,
+        });
+        let expected =
+            r#"{"v":1,"type":"phase","scope":"strategy","name":"Plan","number":2,"total":5}"#;
+        assert_eq!(phase.to_line(), expected);
+        let task = Event::new(EventKind::Task {
+            task_type: "query".into(),
+            description: "look".into(),
+        });
+        let expected = r#"{"v":1,"type":"task","task_type":"query","description":"look"}"#;
+        assert_eq!(task.to_line(), expected);
     }
 
     #[test]

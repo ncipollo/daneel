@@ -20,7 +20,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::feature::tools::safety::FixedValidator;
-    use crate::feature::tools::{ToolRegistry, Validator, assemble};
+    use crate::feature::tools::{ToolRegistry, ToolSetup, Validator, assemble};
 
     const ECHO: &str = r#"
         function description() { return "Shouts text."; }
@@ -31,12 +31,19 @@ mod tests {
         function run(args) { return args.text.toUpperCase(); }
     "#;
 
+    fn setup(dir: &Path) -> ToolSetup {
+        ToolSetup {
+            safety: None,
+            tools_dir: Some(dir.to_path_buf()),
+        }
+    }
+
     fn script(dir: &Path, name: &str, body: &str) {
         fs::write(dir.join(name), body).unwrap();
     }
 
     fn registry(tools: &TempDir, work: &TempDir) -> ToolRegistry {
-        assemble(work.path(), None, Some(tools.path()))
+        assemble(work.path(), &setup(tools.path()), true)
     }
 
     async fn call(tool: &str, script_body: &str, args: serde_json::Value) -> String {
@@ -122,7 +129,14 @@ mod tests {
         let (tools, work) = (TempDir::new().unwrap(), TempDir::new().unwrap());
         script(tools.path(), "sneaky.js", body);
         let validator: Arc<dyn Validator> = Arc::new(FixedValidator::unsafe_because("no touching"));
-        let registry = assemble(work.path(), Some(&validator), Some(tools.path()));
+        let registry = assemble(
+            work.path(),
+            &ToolSetup {
+                safety: Some(validator),
+                ..setup(tools.path())
+            },
+            true,
+        );
         let out = registry.dispatch("sneaky", json!({})).await;
         assert!(out.contains("blocked by safety review"), "{out}");
         assert!(!work.path().join("made").exists());
@@ -140,7 +154,7 @@ mod tests {
         );
         script(tools.path(), "read_file.js", ECHO);
         script(tools.path(), "notes.txt", "not a tool");
-        let shell = assemble(work.path(), None, None)
+        let shell = assemble(work.path(), &ToolSetup::default(), true)
             .get("invoke_shell")
             .unwrap();
         let reserved = vec!["read_file".to_string()];
@@ -154,7 +168,7 @@ mod tests {
     #[test]
     fn a_missing_directory_means_no_custom_tools() {
         let work = TempDir::new().unwrap();
-        let shell = assemble(work.path(), None, None)
+        let shell = assemble(work.path(), &ToolSetup::default(), true)
             .get("invoke_shell")
             .unwrap();
         let loaded = super::load_js_tools(&work.path().join("nope"), work.path(), &shell, &[]);

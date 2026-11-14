@@ -63,3 +63,16 @@ impl Provider for ScriptProvider {
         })
     }
 }
+
+/// A step that moves to the next phase.
+pub fn advance() -> Vec<Call> {
+    vec![call("advance_phase", serde_json::json!({}))]
+}
+
+/// A step that delivers `summary` and ends the run.
+pub fn finish(summary: &str) -> Vec<Call> {
+    vec![call(
+        "complete_task",
+        serde_json::json!({ "summary": summary }),
+    )]
+}

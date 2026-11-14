@@ -1,43 +1,54 @@
-//! A conversation with the configured model. Holds history across turns and is
-//! shared by one-shot mode and the TUI.
+//! A conversation with the configured model. Every message becomes a task and is
+//! run through the strategy machine; the delivered result is the reply. Holds
+//! history across turns and is shared by one-shot mode and the TUI.
+
+mod history;
+#[cfg(test)]
+mod tests;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::feature::config::{self, Config};
 use crate::feature::events::{Event, EventKind, EventSink};
-use crate::feature::provider::{ChatMessage, ChatRequest, Provider, ProviderError, Role};
+use crate::feature::interaction::Environment;
+use crate::feature::provider::{ChatMessage, Provider, ProviderError, Role};
 use crate::feature::providers::{ProviderSpec, build_provider};
 use crate::feature::session::{self, Session};
+use crate::feature::strategy::load::{load_strategy_or_default, load_tactic_or_default};
+use crate::feature::strategy::machine::{StrategyContext, run_strategy};
+use crate::feature::strategy::{PhaseList, defaults, paths};
+use crate::feature::task::transform::from_message;
 use crate::feature::tools::safety::validator_from;
-use crate::feature::tools::{Validator, assemble, into_rig_observed};
-
-const INSTRUCTIONS: &str =
-    "You are daneel, a careful assistant. Use the available tools when they help.";
+use crate::feature::tools::{ToolSetup, Validator};
 
 pub struct Chat {
     provider: Arc<dyn Provider>,
     working_dir: PathBuf,
     history: Vec<ChatMessage>,
     session: Option<Session>,
-    safety: Option<Arc<dyn Validator>>,
-    tools_dir: Option<PathBuf>,
+    tools: ToolSetup,
+    strategy: PhaseList,
+    tactic: PhaseList,
 }
 
 impl Chat {
+    /// A chat using the built-in strategy and tactic.
     pub fn new(provider: Arc<dyn Provider>, working_dir: PathBuf) -> Self {
         Self {
             provider,
             working_dir,
             history: Vec::new(),
             session: None,
-            safety: None,
-            tools_dir: None,
+            tools: ToolSetup::default(),
+            strategy: defaults::builtin_strategy(),
+            tactic: defaults::builtin_tactic(),
         }
     }
 
-    /// Builds a chat from the default provider and model named in `config`.
-    /// Also returns the model name for display.
+    /// Builds a chat from the default provider and model named in `config`, with
+    /// the strategy and tactic from `~/.daneel/strategies`. Also returns the
+    /// model name for display.
     pub fn from_config(
         config: &Config,
         working_dir: PathBuf,
@@ -46,8 +57,17 @@ impl Chat {
         let model = spec.model().to_string();
         let mut chat = Self::new(build_provider(spec), working_dir.clone());
         chat.session = session::start_default(&working_dir, &model);
-        chat.safety = validator_from(&config.settings);
-        chat.tools_dir = config::default_dir().ok().map(|dir| dir.join("tools"));
+        chat.tools.safety = validator_from(&config.settings);
+        if let Ok(dir) = config::default_dir() {
+            chat.tools.tools_dir = Some(dir.join("tools"));
+            let name = paths::DEFAULT_NAME;
+            let broken = |what: &str, e: config::ConfigError| {
+                ProviderError::Run(format!("could not load the {what}: {e}"))
+            };
+            chat.strategy =
+                load_strategy_or_default(&dir, name).map_err(|e| broken("strategy", e))?;
+            chat.tactic = load_tactic_or_default(&dir, name).map_err(|e| broken("tactic", e))?;
+        }
         Ok((chat, model))
     }
 
@@ -58,13 +78,19 @@ impl Chat {
 
     /// Puts write and shell tools behind a safety review by `validator`.
     pub fn with_safety(mut self, validator: Arc<dyn Validator>) -> Self {
-        self.safety = Some(validator);
+        self.tools.safety = Some(validator);
         self
     }
 
     /// Loads custom JavaScript tools from `dir` on every turn.
     pub fn with_tools_dir(mut self, dir: PathBuf) -> Self {
-        self.tools_dir = Some(dir);
+        self.tools.tools_dir = Some(dir);
+        self
+    }
+
+    pub fn with_phases(mut self, strategy: PhaseList, tactic: PhaseList) -> Self {
+        self.strategy = strategy;
+        self.tactic = tactic;
         self
     }
 
@@ -80,8 +106,9 @@ impl Chat {
         }
     }
 
-    /// Sends one user prompt. Tool activity flows to `sink`; on success the
-    /// exchange is added to the history.
+    /// Sends one user message. It becomes a task, the strategy carries it to a
+    /// delivered result, and progress and tool activity flow to `sink`. On
+    /// success the exchange is added to the history.
     pub async fn send(&mut self, prompt: &str, sink: EventSink) -> Result<String, ProviderError> {
         self.record("user", prompt);
         tracing::debug!(
@@ -90,17 +117,7 @@ impl Chat {
             content = prompt,
             "model message"
         );
-        let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
-        request.history = &self.history;
-        request.tools = into_rig_observed(
-            assemble(
-                &self.working_dir,
-                self.safety.as_ref(),
-                self.tools_dir.as_deref(),
-            ),
-            sink,
-        );
-        let reply = match self.provider.chat(request).await {
+        let reply = match self.run(prompt, sink).await {
             Ok(reply) => reply,
             Err(err) => {
                 tracing::error!(session = self.session_id(), error = %err, "model error");
@@ -118,6 +135,22 @@ impl Chat {
         self.history.push(message(Role::User, prompt));
         self.history.push(message(Role::Assistant, &reply));
         Ok(reply)
+    }
+
+    async fn run(&self, prompt: &str, sink: EventSink) -> Result<String, ProviderError> {
+        let provider: &dyn Provider = self.provider.as_ref();
+        let task = from_message(provider, prompt).await;
+        let env = Environment::new(provider, &self.working_dir, &self.tools)
+            .with_session(self.session.as_ref())
+            .with_sink(sink);
+        let background = history::background(&self.history);
+        let ctx = StrategyContext {
+            env: &env,
+            tactic: &self.tactic,
+            background: &background,
+        };
+        let outcome = run_strategy(&ctx, &self.strategy, &task).await?;
+        Ok(outcome.delivered)
     }
 }
 
@@ -138,150 +171,5 @@ pub fn completion_events(result: &Result<String, ProviderError>) -> Vec<Event> {
         Err(err) => vec![Event::new(EventKind::Error {
             message: err.to_string(),
         })],
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-    use std::sync::Mutex;
-
-    use super::*;
-    use crate::feature::events;
-    use crate::feature::provider::BoxFuture;
-
-    struct Recorder(Mutex<Vec<usize>>);
-
-    impl Provider for Recorder {
-        fn chat<'a>(
-            &'a self,
-            request: ChatRequest<'a>,
-        ) -> BoxFuture<'a, Result<String, ProviderError>> {
-            Box::pin(async move {
-                self.0.lock().unwrap().push(request.history.len());
-                Ok(format!("re:{}", request.prompt))
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn history_grows_across_turns() {
-        let provider = Arc::new(Recorder(Mutex::new(Vec::new())));
-        let mut chat = Chat::new(provider.clone(), PathBuf::from("."));
-        chat.send("a", events::discard()).await.unwrap();
-        let reply = chat.send("b", events::discard()).await.unwrap();
-        assert_eq!(reply, "re:b");
-        assert_eq!(*provider.0.lock().unwrap(), vec![0, 2]);
-    }
-
-    #[tokio::test]
-    async fn turns_are_recorded_in_the_session() {
-        let root = tempfile::TempDir::new().unwrap();
-        let session = Session::create(
-            root.path(),
-            std::time::SystemTime::now(),
-            Path::new("."),
-            "m",
-        )
-        .unwrap();
-        let log = session.dir().join("messages.jsonl");
-        let provider = Arc::new(Recorder(Mutex::new(Vec::new())));
-        let mut chat = Chat::new(provider, PathBuf::from(".")).with_session(session);
-        chat.send("hi", events::discard()).await.unwrap();
-        let text = std::fs::read_to_string(log).unwrap();
-        assert_eq!(text.lines().count(), 2);
-        assert!(text.contains(r#""role":"assistant","content":"re:hi""#));
-    }
-
-    struct Failing;
-
-    impl Provider for Failing {
-        fn chat<'a>(
-            &'a self,
-            _request: ChatRequest<'a>,
-        ) -> BoxFuture<'a, Result<String, ProviderError>> {
-            Box::pin(async { Err(ProviderError::Provider("kaboom".into())) })
-        }
-    }
-
-    #[tokio::test]
-    async fn failed_turns_record_the_full_error() {
-        let root = tempfile::TempDir::new().unwrap();
-        let session = Session::create(
-            root.path(),
-            std::time::SystemTime::now(),
-            Path::new("."),
-            "m",
-        )
-        .unwrap();
-        let log = session.dir().join("messages.jsonl");
-        let mut chat = Chat::new(Arc::new(Failing), PathBuf::from(".")).with_session(session);
-        assert!(chat.send("hi", events::discard()).await.is_err());
-        let text = std::fs::read_to_string(log).unwrap();
-        assert!(text.contains(r#""role":"error","content":"provider error: kaboom""#));
-    }
-
-    #[tokio::test]
-    async fn messages_in_and_out_are_logged() {
-        let logs = crate::feature::log_capture::capture();
-        let mut chat = Chat::new(
-            Arc::new(Recorder(Mutex::new(Vec::new()))),
-            PathBuf::from("."),
-        );
-        chat.send("hello there", events::discard()).await.unwrap();
-        let text = logs.text();
-        assert!(text.contains("direction=\"out\"") && text.contains("hello there"));
-        assert!(text.contains("direction=\"in\"") && text.contains("re:hello there"));
-    }
-
-    #[tokio::test]
-    async fn failures_are_logged() {
-        let logs = crate::feature::log_capture::capture();
-        let mut chat = Chat::new(Arc::new(Failing), PathBuf::from("."));
-        let _ = chat.send("hi", events::discard()).await;
-        assert!(logs.text().contains("kaboom"));
-    }
-
-    #[tokio::test]
-    async fn a_blocked_write_never_touches_the_disk() {
-        use crate::feature::script_provider::{ScriptProvider, call};
-        use crate::feature::tools::safety::FixedValidator;
-        let dir = tempfile::TempDir::new().unwrap();
-        let write = call(
-            "write_file",
-            serde_json::json!({ "path": "x.txt", "content": "hi" }),
-        );
-        let provider = Arc::new(ScriptProvider::new(vec![vec![write]]));
-        let validator = Arc::new(FixedValidator::unsafe_because("nope"));
-        let mut chat = Chat::new(provider, dir.path().to_path_buf()).with_safety(validator);
-        chat.send("go", events::discard()).await.unwrap();
-        assert!(!dir.path().join("x.txt").exists());
-    }
-
-    #[tokio::test]
-    async fn custom_tools_in_the_tools_dir_are_offered_to_the_model() {
-        use crate::feature::script_provider::{ScriptProvider, call};
-        let (tools, work) = (
-            tempfile::TempDir::new().unwrap(),
-            tempfile::TempDir::new().unwrap(),
-        );
-        let body = r#"function parameters() { return {}; } function run() { return shell("touch made"); }"#;
-        std::fs::write(tools.path().join("maker.js"), body).unwrap();
-        let provider = Arc::new(ScriptProvider::new(vec![vec![call(
-            "maker",
-            serde_json::json!({}),
-        )]]));
-        let mut chat = Chat::new(provider, work.path().to_path_buf())
-            .with_tools_dir(tools.path().to_path_buf());
-        chat.send("go", events::discard()).await.unwrap();
-        assert!(work.path().join("made").exists());
-    }
-
-    #[test]
-    fn completion_events_cover_success_and_failure() {
-        let ok = completion_events(&Ok("hi".to_string()));
-        assert_eq!(ok.len(), 2);
-        let err = completion_events(&Err(ProviderError::Provider("x".into())));
-        assert!(matches!(err[0].kind, EventKind::Error { .. }));
     }
 }
