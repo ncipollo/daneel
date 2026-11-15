@@ -251,7 +251,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_model_that_keeps_going_after_signalling_is_cut_off() {
         let state = state().shared();
         let hang = Hang(state.clone());
