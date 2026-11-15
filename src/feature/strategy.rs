@@ -17,13 +17,16 @@ pub struct PhaseConfig {
     pub settings: PhaseSettings,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct PhaseSettings {
     /// When false, artifacts may only be written to the session folder.
     pub can_write_working_directory: bool,
     /// When true, this is the last phase.
     pub terminal: bool,
+    /// Artifact file names this phase must save (with `write_artifact`)
+    /// before `advance_phase` is accepted.
+    pub produces: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -59,6 +62,7 @@ mod tests {
             settings: PhaseSettings {
                 can_write_working_directory: false,
                 terminal,
+                produces: Vec::new(),
             },
         }
     }

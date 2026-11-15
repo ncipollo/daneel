@@ -33,7 +33,14 @@ pub fn render() -> String {
          \x20 prompt    the instructions the model gets for this phase\n\
          \x20 settings  can_write_working_directory (default false): when\n\
          \x20           false the phase may only read; terminal (default\n\
-         \x20           false): marks the last phase\n\
+         \x20           false): marks the last phase; produces (default empty):\n\
+         \x20           artifact file names the phase must save with\n\
+         \x20           write_artifact before advance_phase is accepted\n\
+         \n\
+         ARTIFACTS\n\
+         write_artifact saves markdown to <session>/artifacts/<phase>/<name> and\n\
+         works in every phase. Each prompt lists this phase's folder and the files\n\
+         earlier phases saved, which read_file can open.\n\
          \n\
          RULES\n\
          At least one phase. Only the last may be terminal. The model moves\n\

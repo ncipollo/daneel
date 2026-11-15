@@ -21,6 +21,7 @@ fn one_phase() -> PhaseList {
             settings: PhaseSettings {
                 can_write_working_directory: true,
                 terminal: true,
+                produces: Vec::new(),
             },
         }],
     }

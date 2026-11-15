@@ -1,3 +1,12 @@
+use std::path::PathBuf;
+
+/// Where this phase saves deliverables and what earlier phases left behind.
+pub struct ArtifactInfo {
+    pub dir: PathBuf,
+    pub produces: Vec<String>,
+    pub earlier: Vec<PathBuf>,
+}
+
 /// Everything the wrapper needs to tell the model where it is.
 pub struct PhaseView<'a> {
     pub task_type: &'a str,
@@ -9,6 +18,7 @@ pub struct PhaseView<'a> {
     pub can_create_subtasks: bool,
     pub notes: &'a [String],
     pub prompt: &'a str,
+    pub artifacts: Option<&'a ArtifactInfo>,
 }
 
 /// Wraps a phase's configured prompt with a standard header and footer. The
@@ -25,7 +35,32 @@ pub fn wrap_prompt(view: &PhaseView) -> String {
             .for_each(|note| text.push_str(&format!("- {note}\n")));
     }
     text.push_str(&format!("\n{}\n\n", view.prompt.trim()));
+    if let Some(info) = view.artifacts {
+        text.push_str(&artifacts_block(info));
+    }
     text.push_str(&footer(view));
+    text
+}
+
+fn artifacts_block(info: &ArtifactInfo) -> String {
+    let mut text = format!(
+        "ARTIFACTS: save deliverables with write_artifact (name, content). This phase's files go in {}.\n",
+        info.dir.display()
+    );
+    if !info.produces.is_empty() {
+        let line = format!(
+            "You must save {} before advance_phase.\n",
+            info.produces.join(", ")
+        );
+        text.push_str(&line);
+    }
+    if !info.earlier.is_empty() {
+        text.push_str("Earlier phases saved these files; read them with read_file:\n");
+        info.earlier
+            .iter()
+            .for_each(|p| text.push_str(&format!("- {}\n", p.display())));
+    }
+    text.push('\n');
     text
 }
 
@@ -72,6 +107,7 @@ mod tests {
             can_create_subtasks: !terminal,
             notes,
             prompt: "  Think first.  ",
+            artifacts: None,
         }
     }
 
@@ -93,6 +129,22 @@ mod tests {
         let last = wrap_prompt(&view(3, true, &[]));
         assert!(last.contains("complete_task") && !last.contains("create_subtask"));
         assert!(!last.contains("skip_to_phase"));
+    }
+
+    #[test]
+    fn artifacts_block_names_folder_requirements_and_earlier_files() {
+        let info = ArtifactInfo {
+            dir: PathBuf::from("/s/artifacts/plan"),
+            produces: vec!["plan.md".into()],
+            earlier: vec![PathBuf::from("/s/artifacts/discover/findings.md")],
+        };
+        let mut v = view(2, false, &[]);
+        v.artifacts = Some(&info);
+        let text = wrap_prompt(&v);
+        assert!(text.contains("go in /s/artifacts/plan"));
+        assert!(text.contains("You must save plan.md before advance_phase"));
+        assert!(text.contains("- /s/artifacts/discover/findings.md"));
+        assert!(!wrap_prompt(&view(2, false, &[])).contains("ARTIFACTS"));
     }
 
     #[test]
