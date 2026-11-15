@@ -12,7 +12,7 @@ pub fn render() -> String {
          \x20 strategies/<name>.toml           phases (--info strategies)\n\
          \x20 strategies/tactics/<name>.toml   subtask phases\n\
          \x20 sessions/<id>/         one folder per run: messages.jsonl, tasks.jsonl,\n\
-         \x20                        artifacts/<phase>/, and trace.jsonl, an ordered\n\
+         \x20                        artifacts/task-<n>/<phase>/, and trace.jsonl, an ordered\n\
          \x20                        trace (ts_ms, scope, phase, event {type, ..}:\n\
          \x20                        phase, subtask_start/end, tool_call/result,\n\
          \x20                        transition) for debugging subtasks\n\

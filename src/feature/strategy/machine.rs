@@ -76,6 +76,8 @@ struct Run<'a> {
     task: &'a Task,
     notes: Vec<String>,
     subtasks_run: usize,
+    /// This task's own artifact folder; `None` when there is no session.
+    artifacts: Option<Session>,
 }
 
 /// Runs `task` through `strategy`; the final phase must deliver.
@@ -96,6 +98,7 @@ pub async fn run_strategy(
         task,
         notes: ctx.background.to_vec(),
         subtasks_run: 0,
+        artifacts: ctx.env.session.and_then(|s| s.begin_task().ok()),
     };
     let (mut index, mut retries) = (0, 0);
     loop {
@@ -204,7 +207,7 @@ impl Run<'_> {
         let turn = PhaseTurn {
             env: self.ctx.env,
             allow_write: phase.settings.can_write_working_directory,
-            artifacts: self.ctx.env.session.map(|session| ArtifactScope {
+            artifacts: self.artifacts.as_ref().map(|session| ArtifactScope {
                 session,
                 phase: &phase.name,
             }),
@@ -242,7 +245,7 @@ impl Run<'_> {
     }
 
     fn artifact_info(&self, phase: &PhaseConfig) -> Option<ArtifactInfo> {
-        let session = self.ctx.env.session?;
+        let session = self.artifacts.as_ref()?;
         Some(ArtifactInfo {
             dir: session.artifact_dir(&phase.name),
             produces: phase.settings.produces.clone(),
@@ -303,5 +306,7 @@ fn record_task(session: Option<&Session>, task: &Task) {
     }
 }
 
+#[cfg(test)]
+mod artifact_tests;
 #[cfg(test)]
 mod tests;

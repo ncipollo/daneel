@@ -8,7 +8,7 @@ use crate::feature::script_provider::{Call, ScriptProvider, call};
 use crate::feature::strategy::PhaseSettings;
 use crate::feature::tools::ToolSetup;
 
-fn list(names: [&str; 2]) -> PhaseList {
+pub(super) fn list(names: [&str; 2]) -> PhaseList {
     let phase = |name: &str, terminal: bool| PhaseConfig {
         name: name.into(),
         prompt: format!("{name} prompt"),
@@ -27,11 +27,11 @@ fn create(description: &str) -> Call {
     call("create_subtask", json!({ "description": description }))
 }
 
-fn advance() -> Vec<Call> {
+pub(super) fn advance() -> Vec<Call> {
     vec![call("advance_phase", json!({}))]
 }
 
-fn finish(summary: &str) -> Vec<Call> {
+pub(super) fn finish(summary: &str) -> Vec<Call> {
     vec![call("complete_task", json!({ "summary": summary }))]
 }
 
@@ -239,46 +239,10 @@ async fn an_invalid_strategy_is_rejected() {
     assert!(matches!(err, StrategyError::Invalid(_)));
 }
 
-fn artifact_session(root: &Path) -> Session {
-    Session::create(root, SystemTime::now(), Path::new("."), "m").unwrap()
-}
-
-#[tokio::test]
-async fn a_phase_must_save_its_deliverable_before_advancing() {
-    let root = tempfile::TempDir::new().unwrap();
-    let session = artifact_session(root.path());
-    let mut strategy = list(["Discover", "Deliver"]);
-    strategy.phases[0].settings.produces = vec!["findings.md".into()];
-    let save = call(
-        "write_artifact",
-        json!({ "name": "findings.md", "content": "facts" }),
-    );
-    let provider = ScriptProvider::new(vec![
-        advance(),
-        vec![save, call("advance_phase", json!({}))],
-        finish("done"),
-    ]);
-    let setup = ToolSetup::default();
-    let env = Environment::new(&provider, Path::new("."), &setup).with_session(Some(&session));
-    let tactic = list(["Do", "Wrap"]);
-    let ctx = StrategyContext {
-        env: &env,
-        tactic: &tactic,
-        background: &[],
-    };
-    let task = Task::new("query", "q");
-    let outcome = run_strategy(&ctx, &strategy, &task).await.unwrap();
-    assert_eq!(outcome.delivered, "done");
-    let prompts = provider.prompts();
-    assert!(prompts[0].contains("You must save findings.md"));
-    let last = prompts.last().unwrap();
-    assert!(last.contains("artifacts/discover/findings.md"));
-}
-
 #[tokio::test]
 async fn the_trace_follows_a_subtask_from_start_to_end() {
     let root = tempfile::TempDir::new().unwrap();
-    let session = artifact_session(root.path());
+    let session = Session::create(root.path(), SystemTime::now(), Path::new("."), "m").unwrap();
     let steps = vec![
         vec![create("look")],
         advance(),
