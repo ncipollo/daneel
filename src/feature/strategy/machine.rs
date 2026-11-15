@@ -128,10 +128,12 @@ impl Run<'_> {
             self.run_subtasks(out.created).await?;
             match out.signal {
                 Some(Signal::Advance) => {
+                    self.transition(phase, "advance", self.next_name(index), "");
                     tracing::info!(from = phase.name.as_str(), "strategy phase transition");
                     return Ok(Step::Next);
                 }
                 Some(Signal::Complete { summary }) => {
+                    self.transition(phase, "complete", "", "");
                     tracing::info!(summary = summary.as_str(), "strategy delivered");
                     return Ok(Step::Delivered(summary));
                 }
@@ -144,6 +146,7 @@ impl Run<'_> {
                         to = target.as_str(),
                         "strategy phase transition (skip)"
                     );
+                    self.transition(phase, "skip", &target, &reason);
                     self.notes.push(format!("skipped to {target}: {reason}"));
                     return Ok(Step::Skip(self.position(&target)));
                 }
@@ -156,6 +159,7 @@ impl Run<'_> {
                         to = target.as_str(),
                         "strategy phase transition (retry)"
                     );
+                    self.transition(phase, "retry", &target, &reason);
                     self.notes.push(format!("went back to {target}: {reason}"));
                     return Ok(Step::Back(self.position(&target)));
                 }
@@ -212,11 +216,20 @@ impl Run<'_> {
             self.subtasks_run += 1;
             record_task(self.ctx.env.session, &subtask);
             let label = format!("subtask-{}", self.subtasks_run);
+            (self.ctx.env.sink)(Event::new(EventKind::SubtaskStart {
+                label: label.clone(),
+                task_type: subtask.task_type.clone(),
+                description: subtask.description.clone(),
+            }));
             let tactic_ctx = TacticContext {
                 env: self.ctx.env,
                 label: &label,
             };
             let outcome = tactic::run_tactic(&tactic_ctx, self.ctx.tactic, &subtask).await?;
+            (self.ctx.env.sink)(Event::new(EventKind::SubtaskEnd {
+                label: label.clone(),
+                summary: outcome.summary.clone(),
+            }));
             let note = format!(
                 "subtask '{}' done: {}",
                 subtask.description,
@@ -234,6 +247,21 @@ impl Run<'_> {
             produces: phase.settings.produces.clone(),
             earlier: session.list_artifacts(),
         })
+    }
+
+    fn next_name(&self, index: usize) -> &str {
+        let phases = &self.strategy.phases;
+        phases.get(index + 1).map_or("", |p| p.name.as_str())
+    }
+
+    fn transition(&self, from: &PhaseConfig, kind: &str, to: &str, reason: &str) {
+        (self.ctx.env.sink)(Event::new(EventKind::Transition {
+            scope: "strategy".to_string(),
+            from: from.name.clone(),
+            to: to.to_string(),
+            kind: kind.to_string(),
+            reason: reason.to_string(),
+        }));
     }
 
     fn announce(&self, phase: &PhaseConfig, index: usize) {

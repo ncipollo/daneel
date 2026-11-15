@@ -21,6 +21,7 @@ use crate::feature::strategy::{PhaseList, defaults, paths};
 use crate::feature::task::transform::from_message;
 use crate::feature::tools::safety::validator_from;
 use crate::feature::tools::{ToolSetup, Validator};
+use crate::feature::trace;
 
 pub struct Chat {
     provider: Arc<dyn Provider>,
@@ -138,6 +139,10 @@ impl Chat {
     }
 
     async fn run(&self, prompt: &str, sink: EventSink) -> Result<String, ProviderError> {
+        let sink = match &self.session {
+            Some(session) => trace::tee(session.clone(), sink),
+            None => sink,
+        };
         let provider: &dyn Provider = self.provider.as_ref();
         let task = from_message(provider, prompt).await;
         let env = Environment::new(provider, &self.working_dir, &self.tools)

@@ -274,3 +274,49 @@ async fn a_phase_must_save_its_deliverable_before_advancing() {
     let last = prompts.last().unwrap();
     assert!(last.contains("artifacts/discover/findings.md"));
 }
+
+#[tokio::test]
+async fn the_trace_follows_a_subtask_from_start_to_end() {
+    let root = tempfile::TempDir::new().unwrap();
+    let session = artifact_session(root.path());
+    let steps = vec![
+        vec![create("look")],
+        advance(),
+        finish("found it"),
+        advance(),
+        finish("the answer"),
+    ];
+    let provider = ScriptProvider::new(steps);
+    let setup = ToolSetup::default();
+    let sink = crate::feature::trace::tee(session.clone(), crate::feature::events::discard());
+    let env = Environment::new(&provider, Path::new("."), &setup)
+        .with_session(Some(&session))
+        .with_sink(sink);
+    run_in(&env, &[]).await.unwrap();
+    let text = std::fs::read_to_string(session.dir().join("trace.jsonl")).unwrap();
+    let rows: Vec<serde_json::Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let shape: Vec<(String, String, String)> = rows
+        .iter()
+        .map(|r| {
+            let field = |k: &str| r[k].as_str().unwrap_or("").to_string();
+            (
+                r["event"]["type"].as_str().unwrap_or("").to_string(),
+                field("scope"),
+                field("phase"),
+            )
+        })
+        .collect();
+    let row = |t: &str, s: &str, p: &str| (t.to_string(), s.to_string(), p.to_string());
+    assert_eq!(shape[0], row("task", "", ""));
+    assert_eq!(shape[1], row("phase", "strategy", "Discover"));
+    let at = |r: &(String, String, String)| shape.iter().position(|s| s == r).unwrap();
+    let start = at(&row("subtask_start", "strategy", "Discover"));
+    assert!(start < at(&row("phase", "subtask 1", "Do")));
+    assert!(start < at(&row("subtask_end", "subtask 1", "Wrap")));
+    assert!(shape.contains(&row("transition", "subtask 1", "Do")));
+    assert!(shape.contains(&row("subtask_end", "subtask 1", "Wrap")));
+    assert!(shape.contains(&row("transition", "strategy", "Discover")));
+}

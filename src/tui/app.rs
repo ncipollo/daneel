@@ -121,6 +121,9 @@ impl App {
                 number,
                 total,
             } => self.phase = Some(phase_label(&scope, &name, number, total)),
+            EventKind::SubtaskStart { .. }
+            | EventKind::SubtaskEnd { .. }
+            | EventKind::Transition { .. } => {}
             EventKind::Done => self.finish_turn(),
             EventKind::Error { message } => {
                 self.entries.push(Entry::Error(summarize_error(&message)));

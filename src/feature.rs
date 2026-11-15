@@ -19,3 +19,4 @@ pub mod strategy;
 pub mod tactic;
 pub mod task;
 pub mod tools;
+pub mod trace;

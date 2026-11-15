@@ -34,6 +34,24 @@ pub enum EventKind {
         number: usize,
         total: usize,
     },
+    /// A subtask is about to run through the tactic. `label` is `subtask-N`.
+    SubtaskStart {
+        label: String,
+        task_type: String,
+        description: String,
+    },
+    SubtaskEnd {
+        label: String,
+        summary: String,
+    },
+    /// A phase handed over: `kind` is advance, skip, retry or complete.
+    Transition {
+        scope: String,
+        from: String,
+        to: String,
+        kind: String,
+        reason: String,
+    },
     Done,
     Error {
         message: String,
