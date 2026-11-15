@@ -1,6 +1,9 @@
 //! One phase of model work: the prompt is sent, and if the model neither signals
 //! nor creates subtasks it is nudged a couple of times before giving up.
 
+use std::sync::{Arc, Mutex};
+
+use crate::feature::events::{Event, EventKind, EventSink};
 use crate::feature::interaction::environment::Environment;
 use crate::feature::interaction::register_interaction_tools;
 use crate::feature::interaction::state::{InteractionState, SharedState, Signal};
@@ -13,6 +16,7 @@ use crate::feature::tools::{assemble, into_rig_observed};
 const INSTRUCTIONS: &str =
     "You are daneel, a careful assistant. Do exactly what the phase asks, using tools.";
 const NUDGE: &str = "You did not call a tool, so nothing moved. Follow the HOW TO RESPOND lines above and call the right tool now.";
+const NUDGE_AFTER_WORK: &str = "Your tool calls were done and their results are kept, so do not redo the work. The phase only moves when you call advance_phase (or complete_task in the last phase). If the work is finished, call it now.";
 pub const MAX_NUDGES: usize = 2;
 const BRIEF_CHARS: usize = 300;
 
@@ -46,14 +50,15 @@ impl PhaseTurn<'_> {
         let mut history = Vec::new();
         let mut next = prompt.to_string();
         let mut reply = String::new();
+        let worked = Arc::new(Mutex::new(false));
         for _ in 0..=MAX_NUDGES {
-            reply = self.ask(&shared, &history, &next).await?;
+            reply = self.ask(&shared, &history, &next, &worked).await?;
             if acted(&shared) {
                 break;
             }
             history.push(message(Role::User, &next));
             history.push(message(Role::Assistant, &reply));
-            next = NUDGE.to_string();
+            next = nudge(&worked).to_string();
         }
         Ok(outcome(&shared, reply))
     }
@@ -63,6 +68,7 @@ impl PhaseTurn<'_> {
         shared: &SharedState,
         history: &[ChatMessage],
         prompt: &str,
+        worked: &Arc<Mutex<bool>>,
     ) -> Result<String, ProviderError> {
         let env = self.env;
         let mut registry = assemble(env.working_dir, env.tools, self.allow_write);
@@ -72,11 +78,30 @@ impl PhaseTurn<'_> {
         }
         let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
         request.history = history;
-        request.tools = into_rig_observed(registry, env.sink.clone());
+        request.tools = into_rig_observed(registry, watch_tools(&env.sink, worked));
         tracing::debug!(direction = "out", content = prompt, "model message");
         let reply = env.provider.chat(request).await?;
         tracing::debug!(direction = "in", content = reply.as_str(), "model message");
         Ok(reply)
+    }
+}
+
+/// Passes events on, noting when the model called any tool.
+fn watch_tools(inner: &EventSink, worked: &Arc<Mutex<bool>>) -> EventSink {
+    let (inner, worked) = (inner.clone(), worked.clone());
+    Arc::new(move |event: Event| {
+        if matches!(event.kind, EventKind::ToolCall { .. }) {
+            *worked.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        }
+        inner(event);
+    })
+}
+
+fn nudge(worked: &Arc<Mutex<bool>>) -> &'static str {
+    if *worked.lock().unwrap_or_else(|e| e.into_inner()) {
+        NUDGE_AFTER_WORK
+    } else {
+        NUDGE
     }
 }
 
@@ -165,6 +190,15 @@ mod tests {
     async fn a_nudge_can_recover() {
         let provider = ScriptProvider::new(vec![vec![], vec![call("advance_phase", json!({}))]]);
         assert_eq!(run(&provider).await.signal, Some(Signal::Advance));
+    }
+
+    #[tokio::test]
+    async fn a_nudge_after_work_says_not_to_redo_it() {
+        let step = vec![call("list_files", json!({ "path": "." }))];
+        let provider = ScriptProvider::new(vec![step]);
+        let out = run(&provider).await;
+        assert_eq!(out.signal, None);
+        assert!(provider.prompts()[1].contains("do not redo the work"));
     }
 
     #[test]

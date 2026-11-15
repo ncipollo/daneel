@@ -28,7 +28,7 @@ settings = { can_write_working_directory = false, terminal = false, produces = [
 [[phases]]
 name = "Execute"
 prompt = """
-Read the plan file named in ARTIFACTS with read_file, then carry it out one step at a time. Make the changes in the working directory and run what you need to check each step."""
+Read the plan file named in ARTIFACTS with read_file, then carry it out one step at a time. Make the changes in the working directory and run what you need to check each step. When every step is done, call advance_phase."""
 settings = { can_write_working_directory = true, terminal = false }
 
 [[phases]]
