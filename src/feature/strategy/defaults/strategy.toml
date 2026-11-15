@@ -9,32 +9,33 @@ name = "Triage"
 prompt = """
 Decide one thing: does this task need investigation or changes to files, or can you simply answer it now (a greeting, a question about yourself, general knowledge)?
 - If you can just answer, call skip_to_phase with the argument phase set to "Deliver", like this: skip_to_phase {"phase": "Deliver", "reason": "simple greeting"}. Do not call advance_phase.
-- If it needs files looked at or changed, call advance_phase."""
+- If it needs files looked at or changed, call advance_phase.
+Do nothing else in this phase: no other tools, no subtasks."""
 settings = { can_write_working_directory = false, terminal = false }
 
 [[phases]]
 name = "Discover"
 prompt = """
-Locate before you read. First use find_files (by name) or grep_files (by content) to find the files that matter, or list_files to see a folder. Then read_file only the files you found, never guess paths. Do not change anything yet.
-When you know enough, call write_artifact with name "findings.md" and markdown content listing: the task in one line, the relevant files with a note on each, key facts you learned, and open questions. Later phases read only this file, so make it complete. Then call advance_phase."""
+Look only in the WORKING DIRECTORY named above, never in the session folder. Start with list_files on it. If it has files that matter, use find_files (by name) or grep_files (by content) and read_file only what you found; never guess paths. If it is empty, that is fine: the work is a new project, so do not keep searching. Do not change anything yet, and do not research on the web.
+When you know enough (two or three tool calls is usually enough), call write_artifact with name "findings.md" and markdown content listing: the task in one line, the relevant files with a note on each, key facts you learned, and open questions. Later phases read only this file, so make it complete. Then call advance_phase."""
 settings = { can_write_working_directory = false, terminal = false, produces = ["findings.md"] }
 
 [[phases]]
 name = "Plan"
 prompt = """
-Read the Discover findings file named in ARTIFACTS with read_file. Then call write_artifact with name "plan.md" and markdown content: a numbered list of small, concrete steps, the files each step changes, and how to check the work at the end. Execute follows this file exactly. Then call advance_phase."""
+Read the Discover findings file named in ARTIFACTS with read_file. Then call write_artifact with name "plan.md" and markdown content: a numbered list of at most 5 small steps. Each step names the file it creates or changes, using paths inside the WORKING DIRECTORY. Use what you already know; do not add steps to research, read documentation, or write a README. Never plan around an API key or account the user has not given you; choose a free service that works without one. The last step runs the result once to check it. Execute follows this file exactly. Then call advance_phase."""
 settings = { can_write_working_directory = false, terminal = false, produces = ["plan.md"] }
 
 [[phases]]
 name = "Execute"
 prompt = """
-Read the plan file named in ARTIFACTS with read_file, then carry it out one step at a time. Make the changes in the working directory and run what you need to check each step. When every step is done, call advance_phase."""
+Read the plan file named in ARTIFACTS with read_file, then carry it out one step at a time. Create and change files in the WORKING DIRECTORY by calling write_file or edit_file; describing a change in text does nothing. Run the result once with invoke_shell to check it (use python3 if python is missing). You get at most two attempts at making it work. A failure caused only by a missing key, account or network is fine to leave as is. Do not research on the web or keep polishing: the Validate phase reports what is still wrong. After the steps are done and you have run it, call advance_phase straight away, even if it is imperfect."""
 settings = { can_write_working_directory = true, terminal = false }
 
 [[phases]]
 name = "Validate"
 prompt = """
-Read the plan file named in ARTIFACTS. Check that every step is really done: re-read your changes and run the tests or commands that prove it works. Call write_artifact with name "validation.md" listing each step as done or not done, plus anything still wrong. Then call advance_phase, or retry_phase if work remains."""
+Read the plan file named in ARTIFACTS. Check that every step is really done: re-read your changes and run the tests or commands that prove it works. Call write_artifact with name "validation.md" listing each step as done or not done, plus anything still wrong. If the commands show an error, or any step is not done, call retry_phase with phase "Execute" and the problem as the reason; this phase cannot change the working directory, so never save a fixed copy as an artifact. Otherwise call advance_phase."""
 settings = { can_write_working_directory = false, terminal = false, produces = ["validation.md"] }
 
 [[phases]]

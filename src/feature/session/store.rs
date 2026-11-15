@@ -17,6 +17,8 @@ const PHASES_DIR: &str = "phases";
 pub struct Session {
     dir: PathBuf,
     metadata: SessionMetadata,
+    /// Set on a handle from `begin_task`; artifacts then live under `artifacts/task-N/`.
+    pub(super) task: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -47,7 +49,11 @@ impl Session {
             model: model.to_string(),
         };
         metadata.write(&dir)?;
-        Ok(Self { dir, metadata })
+        Ok(Self {
+            dir,
+            metadata,
+            task: None,
+        })
     }
 
     pub fn dir(&self) -> &Path {

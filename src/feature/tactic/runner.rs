@@ -32,7 +32,7 @@ pub async fn run_tactic(
         let terminal = index + 1 == phases.phases.len();
         announce(ctx, phase, index, names.len());
         let state = InteractionState::new(names.clone(), index, terminal);
-        let view = view_of(subtask, phase, (index, names.len()), terminal, &notes);
+        let view = view_of(ctx, subtask, phase, (index, names.len()), terminal, &notes);
         let turn = PhaseTurn {
             env: ctx.env,
             allow_write: phase.settings.can_write_working_directory,
@@ -41,7 +41,8 @@ pub async fn run_tactic(
         let out = turn.run(state, &wrap_prompt(&view)).await?;
         save_output(ctx, phase, index, &out.reply);
         notes.push(format!("{}: {}", phase.name, brief(&out.reply)));
-        match out.signal {
+        let implied = (out.worked && !terminal).then_some(Signal::Advance);
+        match out.signal.or(implied) {
             None => return Err(TacticError::Stalled(phase.name.clone())),
             Some(Signal::Advance) => {
                 transition(ctx, phase, "advance", &names[index + 1], "");
@@ -122,6 +123,7 @@ fn announce(ctx: &TacticContext<'_>, phase: &PhaseConfig, index: usize, total: u
 }
 
 fn view_of<'a>(
+    ctx: &TacticContext<'a>,
     subtask: &'a Task,
     phase: &'a PhaseConfig,
     (index, total): (usize, usize),
@@ -132,6 +134,7 @@ fn view_of<'a>(
         task_type: &subtask.task_type,
         task_description: &subtask.description,
         phase: &phase.name,
+        working_dir: ctx.env.working_dir,
         number: index + 1,
         total,
         terminal,
@@ -276,11 +279,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delivering_early_is_refused() {
+    async fn delivering_early_is_refused_and_the_phase_counts_as_done() {
         let early = vec![call("complete_task", json!({ "summary": "x" }))];
         let provider = ScriptProvider::new(vec![early]);
         let err = run(&provider).await.unwrap_err();
-        assert!(matches!(err, TacticError::Stalled(phase) if phase == "Plan"));
+        assert!(matches!(err, TacticError::Stalled(phase) if phase == "Execute"));
     }
 
     #[tokio::test]

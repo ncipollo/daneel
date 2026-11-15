@@ -65,7 +65,7 @@ impl InteractionState {
         }
         self.ensure_no_open_subtasks("advance")?;
         ensure_deliverables(&self.required)?;
-        self.log("advance requested");
+        tracing::info!(phase = self.phase_name(), "advance requested");
         self.signal = Some(Signal::Advance);
         Ok(())
     }
@@ -134,6 +134,7 @@ impl InteractionState {
     }
 
     pub fn create_subtask(&mut self, task: Task) -> Result<(), String> {
+        self.ensure_unsignalled()?;
         if !self.can_create_subtasks {
             return Err("subtasks cannot be created in this phase".to_string());
         }
@@ -148,6 +149,10 @@ impl InteractionState {
         );
         self.created.push(task);
         Ok(())
+    }
+
+    pub fn has_signal(&self) -> bool {
+        self.signal.is_some()
     }
 
     /// True once the model has signalled or created a subtask.
@@ -165,10 +170,6 @@ impl InteractionState {
 
     fn phase_name(&self) -> &str {
         self.phases.get(self.current).map_or("?", String::as_str)
-    }
-
-    fn log(&self, what: &str) {
-        tracing::info!(phase = self.phase_name(), "{what}");
     }
 
     fn ensure_unsignalled(&self) -> Result<(), String> {
@@ -252,6 +253,15 @@ mod tests {
         let mut s = state(0, false);
         s.advance().unwrap();
         assert!(s.advance().unwrap_err().contains("already pending"));
+    }
+
+    #[test]
+    fn subtasks_are_refused_once_a_phase_change_is_pending() {
+        let mut s = state(0, false).with_subtasks(true, 0);
+        s.advance().unwrap();
+        let err = s.create_subtask(Task::new("general", "late")).unwrap_err();
+        assert!(err.contains("already pending"));
+        assert!(s.take_created().is_empty());
     }
 
     #[test]

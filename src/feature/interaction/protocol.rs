@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Where this phase saves deliverables and what earlier phases left behind.
 pub struct ArtifactInfo {
@@ -12,6 +12,7 @@ pub struct PhaseView<'a> {
     pub task_type: &'a str,
     pub task_description: &'a str,
     pub phase: &'a str,
+    pub working_dir: &'a Path,
     pub number: usize,
     pub total: usize,
     pub terminal: bool,
@@ -25,8 +26,13 @@ pub struct PhaseView<'a> {
 /// footer repeats the protocol because small models forget it.
 pub fn wrap_prompt(view: &PhaseView) -> String {
     let mut text = format!(
-        "TASK ({}): {}\nPHASE {} of {}: {}\n",
-        view.task_type, view.task_description, view.number, view.total, view.phase
+        "TASK ({}): {}\nPHASE {} of {}: {}\nWORKING DIRECTORY (the project lives here): {}\n",
+        view.task_type,
+        view.task_description,
+        view.number,
+        view.total,
+        view.phase,
+        view.working_dir.display()
     );
     if !view.notes.is_empty() {
         text.push_str("\nPROGRESS SO FAR:\n");
@@ -101,6 +107,7 @@ mod tests {
             task_type: "query",
             task_description: "find the bug",
             phase: "Plan",
+            working_dir: Path::new("/work"),
             number,
             total: 3,
             terminal,
@@ -116,6 +123,7 @@ mod tests {
         let text = wrap_prompt(&view(1, false, &[]));
         assert!(text.starts_with("TASK (query): find the bug\nPHASE 1 of 3: Plan"));
         assert!(text.contains("\nThink first.\n"));
+        assert!(text.contains("WORKING DIRECTORY (the project lives here): /work\n"));
     }
 
     #[test]

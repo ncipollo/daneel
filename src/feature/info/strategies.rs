@@ -38,9 +38,11 @@ pub fn render() -> String {
          \x20           write_artifact before advance_phase is accepted\n\
          \n\
          ARTIFACTS\n\
-         write_artifact saves markdown to <session>/artifacts/<phase>/<name> and\n\
-         works in every phase. Each prompt lists this phase's folder and the files\n\
-         earlier phases saved, which read_file can open.\n\
+         write_artifact saves markdown to\n\
+         <session>/artifacts/task-<n>/<phase>/<name> and works in every phase.\n\
+         Each message gets its own task-<n> folder, so a later task never reuses\n\
+         an earlier one's files. Each prompt lists this phase's folder and the\n\
+         files earlier phases of the same task saved, which read_file can open.\n\
          \n\
          RULES\n\
          At least one phase. Only the last may be terminal. The model moves\n\
@@ -49,6 +51,9 @@ pub fn render() -> String {
          that needs no work), goes back with retry_phase, and ends\n\
          the last phase with complete_task. A broken file stops daneel with\n\
          a message naming it.\n\
+         A phase other than the last that called tools and saved every file in\n\
+         produces, but never calls advance_phase after a few nudges, is moved\n\
+         on anyway; the last phase must always deliver.\n\
          \n\
          EXAMPLE\n\
          {EXAMPLE}\n"

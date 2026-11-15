@@ -8,7 +8,9 @@ pub fn render() -> String {
          \x20              * and ?, grep_files searches text, not a regex)\n\
          write_file, edit_file, invoke_shell\n\
          \x20              only in phases with can_write_working_directory = true\n\
-         \x20              (see --info strategies); reviewed if safe tools is on\n\
+         \x20              (see --info strategies); reviewed if safe tools is on.\n\
+         \x20              write_file and edit_file refuse paths outside the\n\
+         \x20              working directory (absolute, .. or symlink)\n\
          Phases also get advance_phase, skip_to_phase, retry_phase,\n\
          create_subtask and complete_task to move through the strategy.\n\
          \n\

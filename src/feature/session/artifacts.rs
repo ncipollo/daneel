@@ -1,5 +1,6 @@
 //! Deliverables the model writes for later phases, kept apart from the raw phase
-//! replies: `artifacts/<phase>/<name>` inside the session folder.
+//! replies: `artifacts/task-<n>/<phase>/<name>` inside the session folder, so
+//! each task in a session keeps its own findings and plan.
 
 use std::fs;
 use std::io;
@@ -9,13 +10,44 @@ use crate::feature::session::Session;
 
 const ARTIFACTS_DIR: &str = "artifacts";
 
+const TASK_PREFIX: &str = "task-";
+
 impl Session {
-    /// The folder `phase` saves its deliverables in (lowercased phase name).
-    pub fn artifact_dir(&self, phase: &str) -> PathBuf {
-        self.dir().join(ARTIFACTS_DIR).join(phase.to_lowercase())
+    /// Claims the next `artifacts/task-<n>/` folder and returns a handle whose
+    /// artifact calls all stay inside it.
+    pub fn begin_task(&self) -> io::Result<Session> {
+        let root = self.dir().join(ARTIFACTS_DIR);
+        let next = sorted_entries(&root)
+            .iter()
+            .filter_map(|p| {
+                p.file_name()?
+                    .to_str()?
+                    .strip_prefix(TASK_PREFIX)?
+                    .parse()
+                    .ok()
+            })
+            .max()
+            .map_or(1, |n: usize| n + 1);
+        fs::create_dir_all(root.join(format!("{TASK_PREFIX}{next}")))?;
+        let mut scoped = self.clone();
+        scoped.task = Some(next);
+        Ok(scoped)
     }
 
-    /// Saves `contents` as `artifacts/<phase>/<name>`, returning the path.
+    fn artifact_root(&self) -> PathBuf {
+        let root = self.dir().join(ARTIFACTS_DIR);
+        match self.task {
+            Some(n) => root.join(format!("{TASK_PREFIX}{n}")),
+            None => root,
+        }
+    }
+
+    /// The folder `phase` saves its deliverables in (lowercased phase name).
+    pub fn artifact_dir(&self, phase: &str) -> PathBuf {
+        self.artifact_root().join(phase.to_lowercase())
+    }
+
+    /// Saves `contents` in this handle's artifact folder as `<phase>/<name>`, returning the path.
     /// `name` must be a plain file name.
     pub fn write_artifact(&self, phase: &str, name: &str, contents: &str) -> io::Result<PathBuf> {
         if !is_plain_name(name) {
@@ -31,9 +63,9 @@ impl Session {
         Ok(path)
     }
 
-    /// Every artifact written so far, in phase then name order.
+    /// Every artifact this task has written so far, in phase then name order.
     pub fn list_artifacts(&self) -> Vec<PathBuf> {
-        let root = self.dir().join(ARTIFACTS_DIR);
+        let root = self.artifact_root();
         let mut found = Vec::new();
         for phase in sorted_entries(&root) {
             found.extend(sorted_entries(&phase).into_iter().filter(|p| p.is_file()));
@@ -105,6 +137,30 @@ mod tests {
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["findings.md", "plan.md"]);
+    }
+
+    #[test]
+    fn each_task_gets_its_own_artifact_folder() {
+        let root = TempDir::new().unwrap();
+        let session = session(root.path());
+        let (one, two) = (session.begin_task().unwrap(), session.begin_task().unwrap());
+        let first = one.write_artifact("Plan", "plan.md", "first").unwrap();
+        let second = two.write_artifact("Plan", "plan.md", "second").unwrap();
+        assert_eq!(first, session.dir().join("artifacts/task-1/plan/plan.md"));
+        assert_eq!(second, session.dir().join("artifacts/task-2/plan/plan.md"));
+        assert_eq!(fs::read_to_string(first).unwrap(), "first");
+        assert_eq!(one.list_artifacts().len(), 1);
+        assert_eq!(two.list_artifacts(), [second]);
+    }
+
+    #[test]
+    fn a_new_task_does_not_see_the_last_tasks_files() {
+        let root = TempDir::new().unwrap();
+        let session = session(root.path());
+        let one = session.begin_task().unwrap();
+        one.write_artifact("Discover", "findings.md", "old")
+            .unwrap();
+        assert!(session.begin_task().unwrap().list_artifacts().is_empty());
     }
 
     #[test]

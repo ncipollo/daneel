@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::feature::provider::BoxFuture;
 use crate::feature::tools::agent_tool::AgentTool;
-use crate::feature::tools::args::{resolve_path, string_arg};
+use crate::feature::tools::args::{resolve_inside, string_arg};
 
 pub struct WriteFile {
     working_dir: PathBuf,
@@ -38,7 +38,7 @@ impl AgentTool for WriteFile {
 
     fn call<'a>(&'a self, args: Value) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
-            let path = resolve_path(&self.working_dir, &string_arg(&args, "path")?);
+            let path = resolve_inside(&self.working_dir, &string_arg(&args, "path")?)?;
             let content = string_arg(&args, "content")?;
             if let Some(parent) = path.parent() {
                 tokio::fs::create_dir_all(parent)
@@ -62,6 +62,18 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[tokio::test]
+    async fn refuses_to_write_outside_the_working_dir() {
+        let dir = TempDir::new().unwrap();
+        let other = TempDir::new().unwrap();
+        let target = other.path().join("stray/x.txt");
+        let tool = WriteFile::new(dir.path().to_path_buf());
+        let args = json!({ "path": target.to_str().unwrap(), "content": "no" });
+        let err = tool.call(args).await.unwrap_err();
+        assert!(err.contains("outside the working directory"));
+        assert!(!other.path().join("stray").exists());
+    }
 
     #[tokio::test]
     async fn writes_and_overwrites() {

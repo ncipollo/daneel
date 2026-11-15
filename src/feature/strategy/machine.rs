@@ -76,6 +76,8 @@ struct Run<'a> {
     task: &'a Task,
     notes: Vec<String>,
     subtasks_run: usize,
+    /// This task's own artifact folder; `None` when there is no session.
+    artifacts: Option<Session>,
 }
 
 /// Runs `task` through `strategy`; the final phase must deliver.
@@ -96,6 +98,7 @@ pub async fn run_strategy(
         task,
         notes: ctx.background.to_vec(),
         subtasks_run: 0,
+        artifacts: ctx.env.session.and_then(|s| s.begin_task().ok()),
     };
     let (mut index, mut retries) = (0, 0);
     loop {
@@ -124,9 +127,12 @@ impl Run<'_> {
             self.save_output(phase, index, &out.reply);
             self.notes
                 .push(format!("{}: {}", phase.name, brief(&out.reply)));
-            let ran = !out.created.is_empty();
+            let (ran, worked) = (!out.created.is_empty(), out.worked);
             self.run_subtasks(out.created).await?;
-            match out.signal {
+            let signal = out
+                .signal
+                .or_else(|| self.implied_advance(index, (terminal, ran, worked)));
+            match signal {
                 Some(Signal::Advance) => {
                     self.transition(phase, "advance", self.next_name(index), "");
                     tracing::info!(from = phase.name.as_str(), "strategy phase transition");
@@ -171,6 +177,26 @@ impl Run<'_> {
         Err(StrategyError::Stalled(phase.name.clone()))
     }
 
+    /// A middle phase that did real work and saved what it must, but never
+    /// called advance_phase, moves on rather than failing the run: the next
+    /// phase (Validate) is there to catch what is wrong.
+    fn implied_advance(
+        &self,
+        index: usize,
+        (terminal, ran, worked): (bool, bool, bool),
+    ) -> Option<Signal> {
+        let phase = &self.strategy.phases[index];
+        let required = required_paths(self.artifact_info(phase).as_ref());
+        if terminal || ran || !worked || required.iter().any(|path| !path.exists()) {
+            return None;
+        }
+        tracing::warn!(
+            phase = phase.name.as_str(),
+            "no advance_phase call after tool work; advancing"
+        );
+        Some(Signal::Advance)
+    }
+
     async fn turn(
         &self,
         index: usize,
@@ -192,6 +218,7 @@ impl Run<'_> {
             task_type: &self.task.task_type,
             task_description: &self.task.description,
             phase: &phase.name,
+            working_dir: self.ctx.env.working_dir,
             number: index + 1,
             total: self.strategy.phases.len(),
             terminal,
@@ -203,7 +230,7 @@ impl Run<'_> {
         let turn = PhaseTurn {
             env: self.ctx.env,
             allow_write: phase.settings.can_write_working_directory,
-            artifacts: self.ctx.env.session.map(|session| ArtifactScope {
+            artifacts: self.artifacts.as_ref().map(|session| ArtifactScope {
                 session,
                 phase: &phase.name,
             }),
@@ -241,7 +268,7 @@ impl Run<'_> {
     }
 
     fn artifact_info(&self, phase: &PhaseConfig) -> Option<ArtifactInfo> {
-        let session = self.ctx.env.session?;
+        let session = self.artifacts.as_ref()?;
         Some(ArtifactInfo {
             dir: session.artifact_dir(&phase.name),
             produces: phase.settings.produces.clone(),
@@ -302,5 +329,7 @@ fn record_task(session: Option<&Session>, task: &Task) {
     }
 }
 
+#[cfg(test)]
+mod artifact_tests;
 #[cfg(test)]
 mod tests;
