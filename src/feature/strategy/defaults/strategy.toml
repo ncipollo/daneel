@@ -15,29 +15,30 @@ settings = { can_write_working_directory = false, terminal = false }
 [[phases]]
 name = "Discover"
 prompt = """
-Locate before you read. First use find_files (by name) or grep_files (by content) to find the files that matter, or list_files to see a folder. Then read_file only the files you found, never guess paths. Do not change anything yet. Break the task into small subtasks if that helps."""
-settings = { can_write_working_directory = false, terminal = false }
+Locate before you read. First use find_files (by name) or grep_files (by content) to find the files that matter, or list_files to see a folder. Then read_file only the files you found, never guess paths. Do not change anything yet.
+When you know enough, call write_artifact with name "findings.md" and markdown content listing: the task in one line, the relevant files with a note on each, key facts you learned, and open questions. Later phases read only this file, so make it complete. Then call advance_phase."""
+settings = { can_write_working_directory = false, terminal = false, produces = ["findings.md"] }
 
 [[phases]]
 name = "Plan"
 prompt = """
-Write a short, numbered plan for the task using what you learned. Keep each step small and concrete."""
-settings = { can_write_working_directory = false, terminal = false }
+Read the Discover findings file named in ARTIFACTS with read_file. Then call write_artifact with name "plan.md" and markdown content: a numbered list of small, concrete steps, the files each step changes, and how to check the work at the end. Execute follows this file exactly. Then call advance_phase."""
+settings = { can_write_working_directory = false, terminal = false, produces = ["plan.md"] }
 
 [[phases]]
 name = "Execute"
 prompt = """
-Carry out the plan one step at a time. Make the changes in the working directory and run what you need to check each step."""
+Read the plan file named in ARTIFACTS with read_file, then carry it out one step at a time. Make the changes in the working directory and run what you need to check each step."""
 settings = { can_write_working_directory = true, terminal = false }
 
 [[phases]]
 name = "Validate"
 prompt = """
-Check that the task is really done. Re-read your changes and run the tests or commands that prove it works. List anything that is still wrong."""
-settings = { can_write_working_directory = false, terminal = false }
+Read the plan file named in ARTIFACTS. Check that every step is really done: re-read your changes and run the tests or commands that prove it works. Call write_artifact with name "validation.md" listing each step as done or not done, plus anything still wrong. Then call advance_phase, or retry_phase if work remains."""
+settings = { can_write_working_directory = false, terminal = false, produces = ["validation.md"] }
 
 [[phases]]
 name = "Deliver"
 prompt = """
-Summarize what you did and what you found, in plain language. Mention anything left undone."""
+Summarize what you did and what you found, in plain language, using the files named in ARTIFACTS if you need detail. Mention anything left undone."""
 settings = { can_write_working_directory = false, terminal = true }

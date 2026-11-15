@@ -8,7 +8,7 @@ pub mod tools;
 pub mod turn;
 
 pub use environment::Environment;
-pub use protocol::{PhaseView, wrap_prompt};
+pub use protocol::{ArtifactInfo, PhaseView, wrap_prompt};
 pub use state::{InteractionState, SharedState, Signal};
 pub use tools::register_interaction_tools;
-pub use turn::{PhaseTurn, TurnOutcome, brief};
+pub use turn::{ArtifactScope, PhaseTurn, TurnOutcome, brief};

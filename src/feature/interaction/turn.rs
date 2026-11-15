@@ -5,7 +5,9 @@ use crate::feature::interaction::environment::Environment;
 use crate::feature::interaction::register_interaction_tools;
 use crate::feature::interaction::state::{InteractionState, SharedState, Signal};
 use crate::feature::provider::{ChatMessage, ChatRequest, ProviderError, Role};
+use crate::feature::session::Session;
 use crate::feature::task::Task;
+use crate::feature::tools::write_artifact::WriteArtifact;
 use crate::feature::tools::{assemble, into_rig_observed};
 
 const INSTRUCTIONS: &str =
@@ -22,9 +24,16 @@ pub struct TurnOutcome {
     pub created: Vec<Task>,
 }
 
+/// Where a phase saves artifacts: the session and the phase name.
+pub struct ArtifactScope<'a> {
+    pub session: &'a Session,
+    pub phase: &'a str,
+}
+
 pub struct PhaseTurn<'a> {
     pub env: &'a Environment<'a>,
     pub allow_write: bool,
+    pub artifacts: Option<ArtifactScope<'a>>,
 }
 
 impl PhaseTurn<'_> {
@@ -58,6 +67,9 @@ impl PhaseTurn<'_> {
         let env = self.env;
         let mut registry = assemble(env.working_dir, env.tools, self.allow_write);
         register_interaction_tools(&mut registry, shared);
+        if let Some(scope) = &self.artifacts {
+            registry.register(WriteArtifact::new(scope.session.clone(), scope.phase));
+        }
         let mut request = ChatRequest::new(INSTRUCTIONS, prompt);
         request.history = history;
         request.tools = into_rig_observed(registry, env.sink.clone());
@@ -119,6 +131,7 @@ mod tests {
         let turn = PhaseTurn {
             env: &env,
             allow_write: false,
+            artifacts: None,
         };
         turn.run(state(), "do it").await.unwrap()
     }

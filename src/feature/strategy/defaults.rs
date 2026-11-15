@@ -137,6 +137,25 @@ mod tests {
     }
 
     #[test]
+    fn discover_plan_and_validate_declare_their_deliverables() {
+        let produced: Vec<_> = builtin_strategy()
+            .phases
+            .iter()
+            .map(|p| (p.name.clone(), p.settings.produces.clone()))
+            .filter(|(_, produces)| !produces.is_empty())
+            .collect();
+        let expect = |n: &str, f: &str| (n.to_string(), vec![f.to_string()]);
+        assert_eq!(
+            produced,
+            [
+                expect("Discover", "findings.md"),
+                expect("Plan", "plan.md"),
+                expect("Validate", "validation.md")
+            ]
+        );
+    }
+
+    #[test]
     fn triage_names_the_skip_argument() {
         let strategy = builtin_strategy();
         let prompt = &strategy.phases[0].prompt;

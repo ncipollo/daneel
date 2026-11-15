@@ -15,6 +15,7 @@ pub mod registry;
 pub mod rig_adapter;
 pub mod safety;
 pub mod search;
+pub mod write_artifact;
 pub mod write_file;
 
 use std::path::{Path, PathBuf};

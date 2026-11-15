@@ -36,6 +36,7 @@ pub async fn run_tactic(
         let turn = PhaseTurn {
             env: ctx.env,
             allow_write: phase.settings.can_write_working_directory,
+            artifacts: None,
         };
         let out = turn.run(state, &wrap_prompt(&view)).await?;
         save_output(ctx, phase, index, &out.reply);
@@ -123,6 +124,7 @@ fn view_of<'a>(
         can_create_subtasks: false,
         notes,
         prompt: &phase.prompt,
+        artifacts: None,
     }
 }
 
@@ -154,6 +156,7 @@ mod tests {
             settings: PhaseSettings {
                 can_write_working_directory: write,
                 terminal: name == "Deliver",
+                produces: Vec::new(),
             },
         };
         PhaseList {

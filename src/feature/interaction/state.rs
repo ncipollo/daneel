@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::feature::task::Task;
@@ -24,6 +25,7 @@ pub struct InteractionState {
     open_subtasks: usize,
     signal: Option<Signal>,
     created: Vec<Task>,
+    required: Vec<PathBuf>,
 }
 
 impl InteractionState {
@@ -36,7 +38,14 @@ impl InteractionState {
             open_subtasks: 0,
             signal: None,
             created: Vec::new(),
+            required: Vec::new(),
         }
+    }
+
+    /// Files that must exist before the phase may advance.
+    pub fn with_required(mut self, required: Vec<PathBuf>) -> Self {
+        self.required = required;
+        self
     }
 
     pub fn with_subtasks(mut self, can_create: bool, open: usize) -> Self {
@@ -55,6 +64,7 @@ impl InteractionState {
             return Err("this is the last phase; call complete_task instead".to_string());
         }
         self.ensure_no_open_subtasks("advance")?;
+        ensure_deliverables(&self.required)?;
         self.log("advance requested");
         self.signal = Some(Signal::Advance);
         Ok(())
@@ -179,6 +189,22 @@ impl InteractionState {
     }
 }
 
+fn ensure_deliverables(required: &[PathBuf]) -> Result<(), String> {
+    let missing: Vec<String> = required
+        .iter()
+        .filter(|path| !path.exists())
+        .filter_map(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .collect();
+    match missing.is_empty() {
+        true => Ok(()),
+        false => Err(format!(
+            "cannot advance yet: save {} with write_artifact first",
+            missing.join(", ")
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,6 +290,18 @@ mod tests {
                 .skip("Deliver", "")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn advance_waits_for_required_deliverables() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let plan = dir.path().join("plan.md");
+        let mut s = state(0, false).with_required(vec![plan.clone()]);
+        let err = s.advance().unwrap_err();
+        assert!(err.contains("plan.md") && err.contains("write_artifact"));
+        std::fs::write(&plan, "1. go").unwrap();
+        s.advance().unwrap();
+        assert_eq!(s.take_signal(), Some(Signal::Advance));
     }
 
     #[test]

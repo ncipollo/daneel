@@ -2,10 +2,14 @@
 //! every subtask the model creates through the tactic machine, and insists on
 //! delivering a result at the end.
 
+use std::path::PathBuf;
+
 use thiserror::Error;
 
 use crate::feature::events::{Event, EventKind};
-use crate::feature::interaction::{Environment, InteractionState, PhaseTurn, PhaseView, Signal};
+use crate::feature::interaction::{
+    ArtifactInfo, ArtifactScope, Environment, InteractionState, PhaseTurn, PhaseView, Signal,
+};
 use crate::feature::interaction::{brief, wrap_prompt};
 use crate::feature::provider::ProviderError;
 use crate::feature::session::Session;
@@ -175,7 +179,11 @@ impl Run<'_> {
             .iter()
             .map(|p| p.name.clone())
             .collect();
-        let state = InteractionState::new(names, index, terminal).with_subtasks(!terminal, 0);
+        let artifacts = self.artifact_info(phase);
+        let required = required_paths(artifacts.as_ref());
+        let state = InteractionState::new(names, index, terminal)
+            .with_subtasks(!terminal, 0)
+            .with_required(required);
         let view = PhaseView {
             task_type: &self.task.task_type,
             task_description: &self.task.description,
@@ -186,10 +194,15 @@ impl Run<'_> {
             can_create_subtasks: !terminal,
             notes: &self.notes,
             prompt: &phase.prompt,
+            artifacts: artifacts.as_ref(),
         };
         let turn = PhaseTurn {
             env: self.ctx.env,
             allow_write: phase.settings.can_write_working_directory,
+            artifacts: self.ctx.env.session.map(|session| ArtifactScope {
+                session,
+                phase: &phase.name,
+            }),
         };
         Ok(turn.run(state, &wrap_prompt(&view)).await?)
     }
@@ -214,6 +227,15 @@ impl Run<'_> {
         Ok(())
     }
 
+    fn artifact_info(&self, phase: &PhaseConfig) -> Option<ArtifactInfo> {
+        let session = self.ctx.env.session?;
+        Some(ArtifactInfo {
+            dir: session.artifact_dir(&phase.name),
+            produces: phase.settings.produces.clone(),
+            earlier: session.list_artifacts(),
+        })
+    }
+
     fn announce(&self, phase: &PhaseConfig, index: usize) {
         (self.ctx.env.sink)(Event::new(EventKind::Phase {
             scope: "strategy".to_string(),
@@ -234,6 +256,16 @@ impl Run<'_> {
             let _ = session.write_phase_output(&phase.name.to_lowercase(), &name, reply);
         }
     }
+}
+
+fn required_paths(info: Option<&ArtifactInfo>) -> Vec<PathBuf> {
+    let Some(info) = info else {
+        return Vec::new();
+    };
+    info.produces
+        .iter()
+        .map(|name| info.dir.join(name))
+        .collect()
 }
 
 fn record_task(session: Option<&Session>, task: &Task) {

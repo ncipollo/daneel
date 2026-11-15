@@ -1,6 +1,7 @@
 //! Sessions: every run is captured under `~/.daneel/sessions/<id>/` so users
 //! and the agent can inspect what happened. Old sessions are pruned.
 
+pub mod artifacts;
 pub mod metadata;
 pub mod prune;
 pub mod store;
