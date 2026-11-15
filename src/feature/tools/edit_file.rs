@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::feature::provider::BoxFuture;
 use crate::feature::tools::agent_tool::AgentTool;
-use crate::feature::tools::args::{resolve_path, string_arg};
+use crate::feature::tools::args::{resolve_inside, string_arg};
 
 pub struct EditFile {
     working_dir: PathBuf,
@@ -56,7 +56,7 @@ impl AgentTool for EditFile {
             let name = string_arg(&args, "path")?;
             let old = string_arg(&args, "old_text")?;
             let new = string_arg(&args, "new_text")?;
-            let path = resolve_path(&self.working_dir, &name);
+            let path = resolve_inside(&self.working_dir, &name)?;
             let text = tokio::fs::read_to_string(&path)
                 .await
                 .map_err(|e| format!("could not read {}: {e}", path.display()))?;
@@ -83,6 +83,19 @@ mod tests {
 
     fn file(dir: &TempDir, contents: &str) {
         std::fs::write(dir.path().join("a.txt"), contents).unwrap();
+    }
+
+    #[tokio::test]
+    async fn refuses_to_edit_outside_the_working_dir() {
+        let dir = TempDir::new().unwrap();
+        let other = TempDir::new().unwrap();
+        let target = other.path().join("a.txt");
+        std::fs::write(&target, "one two").unwrap();
+        let tool = EditFile::new(dir.path().to_path_buf());
+        let args = json!({ "path": target.to_str().unwrap(), "old_text": "two", "new_text": "2" });
+        let err = tool.call(args).await.unwrap_err();
+        assert!(err.contains("outside the working directory"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "one two");
     }
 
     #[tokio::test]
