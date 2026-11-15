@@ -192,6 +192,7 @@ impl Run<'_> {
             task_type: &self.task.task_type,
             task_description: &self.task.description,
             phase: &phase.name,
+            working_dir: self.ctx.env.working_dir,
             number: index + 1,
             total: self.strategy.phases.len(),
             terminal,

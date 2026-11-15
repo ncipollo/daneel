@@ -32,7 +32,7 @@ pub async fn run_tactic(
         let terminal = index + 1 == phases.phases.len();
         announce(ctx, phase, index, names.len());
         let state = InteractionState::new(names.clone(), index, terminal);
-        let view = view_of(subtask, phase, (index, names.len()), terminal, &notes);
+        let view = view_of(ctx, subtask, phase, (index, names.len()), terminal, &notes);
         let turn = PhaseTurn {
             env: ctx.env,
             allow_write: phase.settings.can_write_working_directory,
@@ -122,6 +122,7 @@ fn announce(ctx: &TacticContext<'_>, phase: &PhaseConfig, index: usize, total: u
 }
 
 fn view_of<'a>(
+    ctx: &TacticContext<'a>,
     subtask: &'a Task,
     phase: &'a PhaseConfig,
     (index, total): (usize, usize),
@@ -132,6 +133,7 @@ fn view_of<'a>(
         task_type: &subtask.task_type,
         task_description: &subtask.description,
         phase: &phase.name,
+        working_dir: ctx.env.working_dir,
         number: index + 1,
         total,
         terminal,
