@@ -91,7 +91,7 @@ fn claim_dir(root: &Path, millis: u128) -> io::Result<(String, PathBuf)> {
     unreachable!("the counter does not run out")
 }
 
-fn append_line(path: &Path, value: &impl Serialize) -> io::Result<()> {
+pub(super) fn append_line(path: &Path, value: &impl Serialize) -> io::Result<()> {
     let mut line = serde_json::to_vec(value)?;
     line.push(b'\n');
     OpenOptions::new()

@@ -44,6 +44,7 @@ pub async fn run_tactic(
         match out.signal {
             None => return Err(TacticError::Stalled(phase.name.clone())),
             Some(Signal::Advance) => {
+                transition(ctx, phase, "advance", &names[index + 1], "");
                 tracing::info!(
                     label = ctx.label,
                     from = phase.name.as_str(),
@@ -53,6 +54,7 @@ pub async fn run_tactic(
                 index += 1;
             }
             Some(Signal::Complete { summary }) => {
+                transition(ctx, phase, "complete", "", "");
                 tracing::info!(
                     label = ctx.label,
                     summary = summary.as_str(),
@@ -64,6 +66,7 @@ pub async fn run_tactic(
                 phase: target,
                 reason,
             }) => {
+                transition(ctx, phase, "skip", &target, &reason);
                 notes.push(format!("skipped to {target} from {}: {reason}", phase.name));
                 index = names.iter().position(|n| *n == target).unwrap_or(index + 1);
                 tracing::info!(
@@ -81,6 +84,7 @@ pub async fn run_tactic(
                 if retries > MAX_RETRIES {
                     return Err(TacticError::TooManyRetries);
                 }
+                transition(ctx, phase, "retry", &target, &reason);
                 notes.push(format!(
                     "went back to {target} from {}: {reason}",
                     phase.name
@@ -96,6 +100,16 @@ pub async fn run_tactic(
             }
         }
     }
+}
+
+fn transition(ctx: &TacticContext<'_>, from: &PhaseConfig, kind: &str, to: &str, reason: &str) {
+    (ctx.env.sink)(Event::new(EventKind::Transition {
+        scope: ctx.label.replace('-', " "),
+        from: from.name.clone(),
+        to: to.to_string(),
+        kind: kind.to_string(),
+        reason: reason.to_string(),
+    }));
 }
 
 fn announce(ctx: &TacticContext<'_>, phase: &PhaseConfig, index: usize, total: usize) {

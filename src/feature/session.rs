@@ -5,6 +5,7 @@ pub mod artifacts;
 pub mod metadata;
 pub mod prune;
 pub mod store;
+pub mod trace;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
