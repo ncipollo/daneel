@@ -51,6 +51,9 @@ pub fn render() -> String {
          that needs no work), goes back with retry_phase, and ends\n\
          the last phase with complete_task. A broken file stops daneel with\n\
          a message naming it.\n\
+         A phase other than the last that called tools and saved every file in\n\
+         produces, but never calls advance_phase after a few nudges, is moved\n\
+         on anyway; the last phase must always deliver.\n\
          \n\
          EXAMPLE\n\
          {EXAMPLE}\n"

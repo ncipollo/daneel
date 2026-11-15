@@ -127,9 +127,12 @@ impl Run<'_> {
             self.save_output(phase, index, &out.reply);
             self.notes
                 .push(format!("{}: {}", phase.name, brief(&out.reply)));
-            let ran = !out.created.is_empty();
+            let (ran, worked) = (!out.created.is_empty(), out.worked);
             self.run_subtasks(out.created).await?;
-            match out.signal {
+            let signal = out
+                .signal
+                .or_else(|| self.implied_advance(index, (terminal, ran, worked)));
+            match signal {
                 Some(Signal::Advance) => {
                     self.transition(phase, "advance", self.next_name(index), "");
                     tracing::info!(from = phase.name.as_str(), "strategy phase transition");
@@ -172,6 +175,26 @@ impl Run<'_> {
             }
         }
         Err(StrategyError::Stalled(phase.name.clone()))
+    }
+
+    /// A middle phase that did real work and saved what it must, but never
+    /// called advance_phase, moves on rather than failing the run: the next
+    /// phase (Validate) is there to catch what is wrong.
+    fn implied_advance(
+        &self,
+        index: usize,
+        (terminal, ran, worked): (bool, bool, bool),
+    ) -> Option<Signal> {
+        let phase = &self.strategy.phases[index];
+        let required = required_paths(self.artifact_info(phase).as_ref());
+        if terminal || ran || !worked || required.iter().any(|path| !path.exists()) {
+            return None;
+        }
+        tracing::warn!(
+            phase = phase.name.as_str(),
+            "no advance_phase call after tool work; advancing"
+        );
+        Some(Signal::Advance)
     }
 
     async fn turn(

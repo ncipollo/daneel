@@ -18,7 +18,9 @@ use crate::feature::tools::{assemble, into_rig_observed};
 const INSTRUCTIONS: &str =
     "You are daneel, a careful assistant. Do exactly what the phase asks, using tools.";
 const NUDGE: &str = "You did not call a tool, so nothing moved. Follow the HOW TO RESPOND lines above and call the right tool now.";
-const NUDGE_AFTER_WORK: &str = "Your tool calls were done and their results are kept, so do not redo the work. Writing text does not run anything: a file only exists once write_file or write_artifact succeeded. If something is still missing, call the tool for it now. If the work is finished, call advance_phase (or complete_task in the last phase) now.";
+const NUDGE_AFTER_WORK: &str = "Your earlier tool calls are kept, so do not redo them. Writing text does not run anything: a file only exists once write_file or write_artifact succeeded.";
+const NEXT_STEP: &str = "Do the step you described by calling its tool now. If the phase's work is already finished, call advance_phase (or complete_task in the last phase).";
+const FINAL_NUDGE: &str = "This is your last chance. Do not write more text: call the tool for what you described, or advance_phase (complete_task in the last phase) if the work is finished.";
 pub const MAX_NUDGES: usize = 2;
 /// Hard cap on model calls in one phase, however much progress they make.
 const MAX_ASKS: usize = 12;
@@ -31,6 +33,8 @@ const BRIEF_CHARS: usize = 300;
 /// model never acted.
 pub struct TurnOutcome {
     pub reply: String,
+    /// True when the model called at least one tool, whatever it did next.
+    pub worked: bool,
     pub signal: Option<Signal>,
     pub created: Vec<Task>,
 }
@@ -75,9 +79,10 @@ impl PhaseTurn<'_> {
             }
             history.push(message(Role::User, &next));
             history.push(message(Role::Assistant, &reply));
-            next = nudge(&calls).to_string();
+            next = nudge(&calls, &reply, idle == MAX_NUDGES);
         }
-        Ok(outcome(&shared, reply))
+        let worked = calls.load(Ordering::SeqCst) > 0;
+        Ok(outcome(&shared, reply, worked))
     }
 
     async fn ask(
@@ -132,11 +137,18 @@ fn watch_tools(inner: &EventSink, calls: &Arc<AtomicUsize>) -> EventSink {
     })
 }
 
-fn nudge(calls: &Arc<AtomicUsize>) -> &'static str {
-    if calls.load(Ordering::SeqCst) > 0 {
-        NUDGE_AFTER_WORK
-    } else {
-        NUDGE
+/// Names what the model just said it would do, since small models often announce
+/// a tool call in text and then stop.
+fn nudge(calls: &Arc<AtomicUsize>, reply: &str, last: bool) -> String {
+    let said = match reply.trim() {
+        "" => String::new(),
+        text => format!(" You said: \"{}\".", brief(text)),
+    };
+    let worked = calls.load(Ordering::SeqCst) > 0;
+    match (last, worked) {
+        (true, _) => format!("{FINAL_NUDGE}{said}"),
+        (false, true) => format!("{NUDGE_AFTER_WORK}{said} {NEXT_STEP}"),
+        (false, false) => format!("{NUDGE}{said}"),
     }
 }
 
@@ -157,10 +169,11 @@ fn acted(shared: &SharedState) -> bool {
     state.has_acted()
 }
 
-fn outcome(shared: &SharedState, reply: String) -> TurnOutcome {
+fn outcome(shared: &SharedState, reply: String, worked: bool) -> TurnOutcome {
     let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
     TurnOutcome {
         reply,
+        worked,
         signal: state.take_signal(),
         created: state.take_created(),
     }
@@ -226,6 +239,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_last_nudge_says_it_is_the_last() {
+        let provider = ScriptProvider::new(vec![]);
+        run(&provider).await;
+        let prompts = provider.prompts();
+        assert!(!prompts[1].contains("last chance"));
+        assert!(prompts[MAX_NUDGES].contains("last chance"));
+        assert!(prompts[MAX_NUDGES].contains("You said: \"scripted reply\""));
+    }
+
+    #[tokio::test]
+    async fn the_outcome_records_whether_any_tool_ran() {
+        let step = vec![call("list_files", json!({ "path": "." }))];
+        assert!(run(&ScriptProvider::new(vec![step])).await.worked);
+        assert!(!run(&ScriptProvider::new(vec![])).await.worked);
+    }
+
+    #[tokio::test]
     async fn a_nudge_can_recover() {
         let provider = ScriptProvider::new(vec![vec![], vec![call("advance_phase", json!({}))]]);
         assert_eq!(run(&provider).await.signal, Some(Signal::Advance));
@@ -237,7 +267,8 @@ mod tests {
         let provider = ScriptProvider::new(vec![step]);
         let out = run(&provider).await;
         assert_eq!(out.signal, None);
-        assert!(provider.prompts()[1].contains("do not redo the work"));
+        let nudge = &provider.prompts()[1];
+        assert!(nudge.contains("do not redo them") && nudge.contains("Do the step you described"));
     }
 
     struct Hang(SharedState);

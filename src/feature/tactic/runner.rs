@@ -41,7 +41,8 @@ pub async fn run_tactic(
         let out = turn.run(state, &wrap_prompt(&view)).await?;
         save_output(ctx, phase, index, &out.reply);
         notes.push(format!("{}: {}", phase.name, brief(&out.reply)));
-        match out.signal {
+        let implied = (out.worked && !terminal).then_some(Signal::Advance);
+        match out.signal.or(implied) {
             None => return Err(TacticError::Stalled(phase.name.clone())),
             Some(Signal::Advance) => {
                 transition(ctx, phase, "advance", &names[index + 1], "");
@@ -278,11 +279,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delivering_early_is_refused() {
+    async fn delivering_early_is_refused_and_the_phase_counts_as_done() {
         let early = vec![call("complete_task", json!({ "summary": "x" }))];
         let provider = ScriptProvider::new(vec![early]);
         let err = run(&provider).await.unwrap_err();
-        assert!(matches!(err, TacticError::Stalled(phase) if phase == "Plan"));
+        assert!(matches!(err, TacticError::Stalled(phase) if phase == "Execute"));
     }
 
     #[tokio::test]

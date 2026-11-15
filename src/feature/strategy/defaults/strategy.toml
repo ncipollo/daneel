@@ -23,19 +23,19 @@ settings = { can_write_working_directory = false, terminal = false, produces = [
 [[phases]]
 name = "Plan"
 prompt = """
-Read the Discover findings file named in ARTIFACTS with read_file. Then call write_artifact with name "plan.md" and markdown content: a numbered list of at most 5 small steps. Each step names the file it creates or changes, using paths inside the WORKING DIRECTORY. Use what you already know; do not add steps to research, read documentation, or write a README. Prefer approaches that need no signup or API key. The last step runs the result once to check it. Execute follows this file exactly. Then call advance_phase."""
+Read the Discover findings file named in ARTIFACTS with read_file. Then call write_artifact with name "plan.md" and markdown content: a numbered list of at most 5 small steps. Each step names the file it creates or changes, using paths inside the WORKING DIRECTORY. Use what you already know; do not add steps to research, read documentation, or write a README. Never plan around an API key or account the user has not given you; choose a free service that works without one. The last step runs the result once to check it. Execute follows this file exactly. Then call advance_phase."""
 settings = { can_write_working_directory = false, terminal = false, produces = ["plan.md"] }
 
 [[phases]]
 name = "Execute"
 prompt = """
-Read the plan file named in ARTIFACTS with read_file, then carry it out one step at a time. Create and change files in the WORKING DIRECTORY by calling write_file or edit_file; describing a change in text does nothing. Run the result once with invoke_shell to check it (use python3 if python is missing). A failure caused only by a missing key, account or network is fine to leave as is. Do not research on the web or keep polishing. Once the steps are done and you have run it once, call advance_phase straight away."""
+Read the plan file named in ARTIFACTS with read_file, then carry it out one step at a time. Create and change files in the WORKING DIRECTORY by calling write_file or edit_file; describing a change in text does nothing. Run the result once with invoke_shell to check it (use python3 if python is missing). You get at most two attempts at making it work. A failure caused only by a missing key, account or network is fine to leave as is. Do not research on the web or keep polishing: the Validate phase reports what is still wrong. After the steps are done and you have run it, call advance_phase straight away, even if it is imperfect."""
 settings = { can_write_working_directory = true, terminal = false }
 
 [[phases]]
 name = "Validate"
 prompt = """
-Read the plan file named in ARTIFACTS. Check that every step is really done: re-read your changes and run the tests or commands that prove it works. Call write_artifact with name "validation.md" listing each step as done or not done, plus anything still wrong. Then call advance_phase, or retry_phase if work remains."""
+Read the plan file named in ARTIFACTS. Check that every step is really done: re-read your changes and run the tests or commands that prove it works. Call write_artifact with name "validation.md" listing each step as done or not done, plus anything still wrong. If the commands show an error, or any step is not done, call retry_phase with phase "Execute" and the problem as the reason; this phase cannot change the working directory, so never save a fixed copy as an artifact. Otherwise call advance_phase."""
 settings = { can_write_working_directory = false, terminal = false, produces = ["validation.md"] }
 
 [[phases]]
